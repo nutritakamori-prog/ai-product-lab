@@ -39,7 +39,7 @@ Every agent returns the same shape, regardless of type — enforced by
 
 ```
 agent             — the agent's own slug, self-reported
-status            — "FINDING" | "NO_FINDING"
+status            — "FINDING" | "NO_FINDING" | "UNCONFIRMED"
 finding           — required when status is FINDING, otherwise null
 evidence          — ACTION/EXPECTED/OBSERVED evidence; required when status is FINDING
 impact            — CRITICAL | HIGH | MEDIUM | LOW; required when status is FINDING
@@ -47,6 +47,12 @@ recommendation    — required when status is FINDING
 confidence        — LOW | MEDIUM | HIGH
 needsOtherAgent   — slug of another agent to also weigh in, or null
 ```
+
+`UNCONFIRMED` (added for the Test Lab, `src/core/testing`) is distinct from
+`NO_FINDING`: it means something looked suspicious but there wasn't enough
+evidence to confirm it as a real problem — for example, a step that
+couldn't actually be automated yet. It carries no required fields, same as
+`NO_FINDING`.
 
 Guaranteed two ways: the Anthropic call uses Structured Outputs
 (`messages.parse` + a JSON Schema generated from the Zod object), so the
@@ -72,10 +78,11 @@ EVIDENCE:  what supports that observation
 CONFIDENCE: LOW / MEDIUM / HIGH
 ```
 
-If there's no evidence, the agent must return `status: "NO_FINDING"` rather
-than assert something as fact — the canonical reminder text lives in
-`agents/system/evidence-rules.ts`, and the Runtime's prompt builder
-(`src/core/runtime/build-prompt.ts`) appends it on every call.
+If there's no evidence, the agent must return `status: "NO_FINDING"` (nothing
+to report) or `status: "UNCONFIRMED"` (something looked off but couldn't be
+confirmed) rather than assert something as fact — the canonical reminder
+text lives in `agents/system/evidence-rules.ts`, and the Runtime's prompt
+builder (`src/core/runtime/build-prompt.ts`) appends it on every call.
 
 ## Agent groups (20 agents, Phase 5+) → library folders
 

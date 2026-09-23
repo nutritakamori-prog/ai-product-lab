@@ -5,6 +5,107 @@ Newest first.
 
 ---
 
+## 2026-09-23 — Test Lab: a real Playwright BrowserAdapter, not simulated navigation
+
+**Problem:** the Test Lab foundation (previous entry) explicitly recorded
+the `new-user-creates-first-project` scenario's UI-navigation steps as "not
+automated" rather than fake them, and left `browser-adapter.ts`'s
+`BrowserAdapter` interface unimplemented. This step's job: implement it for
+real.
+
+**Decision:**
+- `browser-adapter.ts` now exports `PlaywrightBrowserAdapter`, a real
+  implementation of the *same* `BrowserAdapter` interface (unchanged
+  shape) — real Chromium, launched with `executablePath:
+  "/opt/pw-browsers/chromium"` (this environment's pre-installed browser)
+  rather than letting Playwright try to download one matching its own npm
+  package's pinned revision, which doesn't have to match what's actually
+  on disk.
+- Added `app-server.ts`: starts a real `next start` (production, against
+  the existing `.next` build) on a free port. Deliberately does **not**
+  build on demand — Vitest can run multiple test files concurrently, and
+  two concurrent `next build`s writing the same `.next` directory would
+  corrupt each other — so it fails fast if no build exists instead. Owns
+  the child process's whole process group (`detached: true` +
+  `process.kill(-pid, ...)`), so `close()` actually leaves nothing running.
+- `test-runner.ts`'s step executor for `new-user-creates-first-project` now
+  drives the real browser through every step (open app, click the real
+  "Projects" nav link, read the real form, fill the real name field,
+  submit, poll the real page body for the new project's name) instead of
+  calling `services/projects.ts` directly. Every `EVIDENCE` field is a real
+  DOM read taken *after* an action — a `click`/`fill` resolving without
+  throwing is never itself treated as evidence (the fundamental rule from
+  the previous entry, now enforced by construction, not just by a comment).
+  Any infrastructure failure (server didn't start, a selector never became
+  actionable) is recorded as exactly that — an infra failure, not a claim
+  about the app — so the agent can tell the difference and answer
+  `UNCONFIRMED` rather than invent a verdict.
+- Test-data cleanup (deleting the project created through the UI) still
+  goes through `db` directly — that's teardown, not part of the tested
+  flow, so it doesn't conflict with "use the real server, not
+  `services/projects.ts`, for the flow."
+- `test-runner.test.ts`'s three scenario-status tests now genuinely start a
+  server + browser per test (given real timeouts instead of Vitest's 5s
+  default) rather than mocking that away — the cost of that being honest.
+  Added `browser-adapter.test.ts`, focused only on the adapter's own
+  mechanics (navigate/fill/click/getText, including that a missing selector
+  throws rather than silently no-oping) — not a broad end-to-end suite.
+- `playwright` added as a devDependency (`--legacy-peer-deps`, same
+  `@types/node` peer conflict as every other install in this project;
+  installed with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` since a browser is
+  already present).
+
+---
+
+## 2026-09-23 — Test Lab foundation: TestScenario as files, TestRun as a table, findings reuse the existing agent output contract
+
+**Problem:** the LAB needs a first layer for agents to *test* it (not build
+it) — a structured scenario, a recorded run, and an honest way to say
+"nothing was confirmed" when a step (like real browser navigation) can't
+actually be performed yet.
+
+**Decision:**
+- `TestScenario` is a versioned file under `src/core/testing/scenarios/`
+  (`test-protocol.ts` + `registry.ts`), the same file-based pattern as the
+  agent library — but *without* the database-merge half of that pattern:
+  scenarios have no operational state an operator needs to override
+  without a deploy yet, so `ScenarioRegistry` is a plain read-only lookup,
+  not a second Registry that talks to Postgres. Revisit if that changes.
+- `TestRun` is a new Prisma table (migration `test_lab_foundation`) —
+  operational history, same reasoning as `AgentExecution`. It does **not**
+  duplicate token/cost/model fields: it references the `AgentExecution` it
+  produced via a unique `executionId` and those numbers are read from
+  there. `TestRun.durationMs` is its own field on purpose — it times the
+  whole run (step execution + agent call), a different measurement than
+  `AgentExecution.durationMs` (just the model call).
+- Findings produced by a `TestRun` reuse `src/domain/agent-output.ts`'s
+  existing `AgentOutput` shape as-is (stored in `TestRun.findings` as
+  JSON) instead of a new `TestFinding` type — FINDING/IMPACT/
+  RECOMMENDATION/CONFIDENCE is exactly what that schema already is.
+- Added `"UNCONFIRMED"` as a third value to `AGENT_OUTPUT_STATUSES`
+  (previously `FINDING`/`NO_FINDING` only) — purely additive, no existing
+  caller or stored data is affected. This was already anticipated:
+  `src/core/findings/README.md` (Phase 7, still empty) already said
+  "unconfirmed things are marked UNCONFIRMED, not asserted" before this
+  step existed; this just brings that one piece of vocabulary forward into
+  the shared contract now that something needs it, without building the
+  rest of Phase 7 (deduplication, Decision/Task promotion — still
+  deferred).
+- No `core/testing/findings/` subfolder, despite the originally proposed
+  `{scenarios,runner,findings}` layout — see the reuse point above, and
+  `src/core/testing/README.md`'s "Why no `findings/` module" section.
+- Browser automation is explicitly not built. `runner/browser-adapter.ts`
+  declares the interface a future implementation must satisfy and is
+  `null` today; `test-runner.ts` records any step that would need it as
+  **not automated**, never as a passed or failed observation — the agent
+  is told exactly which observations are real vs. unautomated and must
+  answer `UNCONFIRMED` rather than invent a result for the latter.
+- The one real scenario (`new-user-creates-first-project`) exercises the
+  real `services/projects.ts` (`createProject`/`listProjects`) directly —
+  real database writes/reads, not a browser, but not fabricated either.
+
+---
+
 ## 2026-09-23 — Agents moved from database rows to versioned files (reverses the Phase 2 reversal)
 
 **Problem:** a user-requested audit flagged that storing agent *behavior*

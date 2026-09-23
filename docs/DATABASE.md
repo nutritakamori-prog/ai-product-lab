@@ -16,6 +16,7 @@ PostgreSQL + Prisma 7. Schema: `prisma/schema.prisma`.
 | `DesignMemory` | Same idea as `ProjectMemory`, for design-specific memory. |
 | `AuditLog` | Generic audit trail. Currently written to by `services/projects.ts` on project creation — the one real writer that justifies the table existing now. |
 | `AgentExecution` | One row per agent run (Phase 2's Agent Runtime): task, status, model, input/output, tokens, cost, duration, error. Scoped directly to `Project` + `Agent` — not to a LAP, which doesn't exist yet. See `docs/DECISIONS.md`. |
+| `TestRun` | One row per attempt at a `TestScenario` (Test Lab foundation, `src/core/testing`): `scenarioId` (a scenario file's id, not a FK — scenarios aren't rows, see `src/core/testing/scenarios/README.md`), agent, project, status (PENDING/RUNNING/PASSED/FAILED/BLOCKED/NEEDS_REVIEW), observations, observed outcome, findings, timing. References the `AgentExecution` it produced (`executionId`) instead of duplicating token/cost/model. See `docs/DECISIONS.md`. |
 
 ## Deliberately not built yet
 

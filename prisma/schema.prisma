@@ -78,6 +78,7 @@ model Project {
   memory        ProjectMemory?
   designMemory  DesignMemory?
   executions    AgentExecution[]
+  testRuns      TestRun[]
 }
 
 // ── Agent registry ──────────────────────────────────────────────────────
@@ -115,6 +116,7 @@ model Agent {
 
   projectAgents ProjectAgent[]
   executions    AgentExecution[]
+  testRuns      TestRun[]
 }
 
 model ProjectAgent {
@@ -162,6 +164,51 @@ model AgentExecution {
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   agent   Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  testRun TestRun?
+}
+
+// ── Test Lab ─────────────────────────────────────────────────────────────
+// One row per attempt at a TestScenario. Scenarios themselves are NOT rows
+// here — like agent behavior, a scenario is versioned, authored content
+// (objective/preconditions/steps/expectedOutcome), so it lives in a file
+// under src/core/testing/scenarios/, validated the same way agent
+// definitions are. `scenarioId` below is that file's `id`, not a foreign
+// key. See src/core/testing/README.md and docs/DECISIONS.md.
+//
+// Token usage/cost/model are deliberately NOT duplicated here — a TestRun
+// that produced an AgentExecution references it via `executionId`, and
+// that row already carries those numbers. `durationMs` IS its own field:
+// it times the whole test run (setup + step execution + agent call), a
+// different measurement than AgentExecution.durationMs (just the model call).
+
+enum TestRunStatus {
+  PENDING
+  RUNNING
+  PASSED
+  FAILED
+  BLOCKED
+  NEEDS_REVIEW
+}
+
+model TestRun {
+  id              String        @id @default(cuid())
+  scenarioId      String // the scenario file's `id`, e.g. "new-user-creates-first-project"
+  agentId         String
+  projectId       String
+  executionId     String?       @unique // the AgentExecution this run produced, once it gets that far
+  status          TestRunStatus @default(PENDING)
+  observations    Json? // ACTION/EXPECTED/OBSERVED/EVIDENCE entries gathered while attempting the scenario
+  observedOutcome String? // what actually happened, to compare against the scenario's expectedOutcome
+  findings        Json? // AgentOutput-shaped findings (src/domain/agent-output.ts) the agent produced from the observations
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  durationMs      Int?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  agent     Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  execution AgentExecution? @relation(fields: [executionId], references: [id])
 }
 
 // ── Memory ───────────────────────────────────────────────────────────────

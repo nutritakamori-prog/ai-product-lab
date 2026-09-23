@@ -69,6 +69,7 @@ validate the pipeline, not as a finished prompt.
 | `context` | Assembling the minimum relevant context for a run | Stub only — real selection logic is Phase 3 |
 | `orchestrator` | Master Orchestrator + Smart Router | Empty — Phase 4 |
 | `lap` | LAP lifecycle | Empty — Phase 6 |
+| `testing` | Test Lab: `TestScenario` (versioned files, `scenarios/`) → `TestRun` (`runner/`'s `runTestScenario()`, driving the existing `runAgent()`) | **Implemented (foundation)** — one scenario, no browser automation yet |
 | `findings` | Findings / Decisions / Tasks, evidence-first, deduplication | Empty — Phase 7 |
 | `memory` | Product Memory + Design Memory | Empty — Phase 11 |
 

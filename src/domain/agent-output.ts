@@ -13,7 +13,12 @@ import { z } from "zod";
  * you cannot report FINDING without evidence, impact, and a recommendation.
  */
 
-export const AGENT_OUTPUT_STATUSES = ["FINDING", "NO_FINDING"] as const;
+// "UNCONFIRMED" added for the Test Lab (src/core/testing): there's a real
+// difference between "nothing to report" (NO_FINDING) and "something looked
+// off but there wasn't enough evidence to confirm it" (UNCONFIRMED) — see
+// src/core/testing/README.md's fundamental rule. Purely additive: existing
+// FINDING/NO_FINDING data and callers are unaffected.
+export const AGENT_OUTPUT_STATUSES = ["FINDING", "NO_FINDING", "UNCONFIRMED"] as const;
 export const IMPACT_LEVELS = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 export const CONFIDENCE_LEVELS = ["LOW", "MEDIUM", "HIGH"] as const;
 
