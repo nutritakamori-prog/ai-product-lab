@@ -1,7 +1,8 @@
-// AI Product Lab — Phase 1 schema.
-// Only the tables needed to validate the core flow exist here. Memory, DesignBlueprint,
-// AuditLog and per-project agent config are added in the phases that actually need them
-// (see docs/DATABASE.md for the reasoning).
+// AI Product Lab — Foundation schema.
+// Only the 9 entities needed for this pass exist here: identity/tenancy, Project,
+// the Agent registry, and the two Memory + AuditLog scaffolds. LAP, Finding,
+// Decision, Task, AgentExecution and TokenUsage are deferred to the LAP Engine
+// phase — see docs/DATABASE.md and docs/DECISIONS.md for the reasoning.
 
 generator client {
   provider = "prisma-client"
@@ -22,8 +23,6 @@ model User {
   updatedAt DateTime @updatedAt
 
   memberships OrganizationMember[]
-  decisions   Decision[]           @relation("DecisionDecidedBy")
-  tasks       Task[]               @relation("TaskAssignee")
 }
 
 model Organization {
@@ -33,8 +32,9 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members  OrganizationMember[]
-  projects Project[]
+  members   OrganizationMember[]
+  projects  Project[]
+  auditLogs AuditLog[]
 }
 
 enum OrganizationRole {
@@ -73,205 +73,111 @@ model Project {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  laps         Lap[]
-  findings     Finding[]
-  decisions    Decision[]
-  tasks        Task[]
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  projectAgents ProjectAgent[]
+  memory        ProjectMemory?
+  designMemory  DesignMemory?
 }
 
-// ── LAP (one analysis run) ──────────────────────────────────────────────
+// ── Agent registry ──────────────────────────────────────────────────────
+// Unlike the Phase 0 draft, agent definitions live here as data (not only code),
+// so they carry the rich metadata the product spec calls for (system prompt,
+// schemas, budget, etc.) and can eventually be managed without a deploy.
+// See docs/DECISIONS.md for why this reverses the earlier code-only decision.
 
-enum LapStatus {
-  DRAFT
-  RUNNING
-  COMPLETED
-  FAILED
+enum AgentType {
+  EXPERIENCE
+  QA
+  DESIGN
+  STRATEGY
 }
 
-model Lap {
-  id          String      @id @default(cuid())
-  projectId   String
-  objective   String
-  mode        ProjectMode @default(HYBRID)
-  version     Int         @default(1)
-  status      LapStatus   @default(DRAFT)
-  scenarios   Json? // free-form list of scenarios this LAP will exercise
-  result      Json? // final consolidated summary once COMPLETED
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  completedAt DateTime?
-
-  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  executions AgentExecution[]
-  findings   Finding[]
-}
-
-// ── Agent execution (the Agent Runtime's audit trail) ────────────────────
-// Agent *definitions* (system prompt, schemas, capabilities) live in code under
-// src/core/agents — this table only records that a run happened and what it produced.
-
-enum AgentExecutionStatus {
-  PENDING
-  RUNNING
-  SUCCESS
-  FAILED
-}
-
-model AgentExecution {
-  id         String               @id @default(cuid())
-  lapId      String
-  agentId    String // matches an id in the code-defined agent registry
-  status     AgentExecutionStatus @default(PENDING)
-  input      Json // the assembled context/prompt input for this run
-  output     Json? // the structured output once finished
-  error      String?
-  model      String? // e.g. "claude-haiku-4-5", set by the Model Router
-  startedAt  DateTime?
-  finishedAt DateTime?
-  durationMs Int?
-  createdAt  DateTime             @default(now())
-
-  lap         Lap          @relation(fields: [lapId], references: [id], onDelete: Cascade)
-  findings    Finding[]
-  tokenUsages TokenUsage[]
-}
-
-// ── Findings / Decisions / Tasks ──────────────────────────────────────────
-
-enum FindingType {
-  BUG
-  UX
-  UI
-  DATA
-  NAVIGATION
-  PERFORMANCE
-  RESPONSIVENESS
-  ACCESSIBILITY
-  CONTENT
-  AUTOMATION
-  OPPORTUNITY
-  FUTURE_RISK
-}
-
-enum ImpactLevel {
-  CRITICAL
-  HIGH
-  MEDIUM
-  LOW
-}
-
-enum FrequencyLevel {
-  ISOLATED
-  RECURRENT
-  GENERALIZED
-}
-
-enum ConfidenceLevel {
+enum AgentPriority {
   LOW
   MEDIUM
   HIGH
 }
 
-enum SolutionType {
-  QUICK_FIX
-  UX_IMPROVEMENT
-  UI_IMPROVEMENT
-  PRODUCT_IMPROVEMENT
-  AUTOMATION
-  NEW_FEATURE
-  FUTURE_IMPROVEMENT
+enum ModelTier {
+  LOW_COST
+  BALANCED
+  HIGH_REASONING
 }
 
-enum FindingStatus {
-  OPEN
-  CONFIRMED
-  DISMISSED
-  RESOLVED
-}
-
-model Finding {
-  id             String          @id @default(cuid())
-  projectId      String
-  lapId          String
-  type           FindingType
-  title          String
-  description    String
-  evidence       String // ACTION / EXPECTED / OBSERVED, written out — never a bare claim
-  impact         ImpactLevel
-  frequency      FrequencyLevel
-  confidence     ConfidenceLevel
-  recommendation SolutionType?
-  status         FindingStatus   @default(OPEN)
-  agentIds       String[] // which agents (code ids) contributed to this finding
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-
-  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  lap        Lap              @relation(fields: [lapId], references: [id], onDelete: Cascade)
-  executions AgentExecution[]
-  decisions  Decision[]
-  tasks      Task[]
-}
-
-model Decision {
-  id             String          @id @default(cuid())
-  projectId      String
-  findingId      String?
-  problem        String
-  facts          String // observed, evidence-backed statements only
-  interpretation String // analysis/inference — kept visibly separate from facts
-  options        Json // [{ label, pros, cons }]
-  recommendation String
-  tradeoffs      String
-  decision       String
-  confidence     ConfidenceLevel
-  decidedById    String?
-  createdAt      DateTime        @default(now())
-
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  finding   Finding? @relation(fields: [findingId], references: [id])
-  decidedBy User?    @relation("DecisionDecidedBy", fields: [decidedById], references: [id])
-  tasks     Task[]
-}
-
-enum TaskStatus {
-  TODO
-  IN_PROGRESS
-  DONE
-  CANCELLED
-}
-
-model Task {
-  id                 String      @id @default(cuid())
-  projectId          String
-  sourceFindingId    String?
-  sourceDecisionId   String?
-  title              String
+model Agent {
+  id                 String        @id @default(cuid())
+  slug               String        @unique // stable code-referenceable id, e.g. "new-user"
+  name               String
+  type               AgentType
   description        String
-  priority           ImpactLevel
-  status             TaskStatus  @default(TODO)
-  assigneeId         String?
-  acceptanceCriteria String
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  responsibility     String // "what problem do I solve?"
+  whenNotToCall      String // "when should I NOT be called?" — required, not decorative
+  capabilities       String[]
+  systemPrompt       String
+  inputSchema        Json // JSON Schema describing expected input
+  outputSchema       Json // JSON Schema describing the AGENT/STATUS/FINDING/... contract
+  tokenBudget        Int
+  priority           AgentPriority @default(MEDIUM)
+  recommendedModel   ModelTier     @default(BALANCED)
+  version            String        @default("0.1.0")
+  enabled            Boolean       @default(false)
+  allowedTools       String[]
+  supportedTaskTypes String[]
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  sourceFinding  Finding?  @relation(fields: [sourceFindingId], references: [id])
-  sourceDecision Decision? @relation(fields: [sourceDecisionId], references: [id])
-  assignee       User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  projectAgents ProjectAgent[]
 }
 
-// ── Token economy ─────────────────────────────────────────────────────────
+model ProjectAgent {
+  id        String   @id @default(cuid())
+  projectId String
+  agentId   String
+  enabled   Boolean  @default(true)
+  config    Json? // per-project overrides, if any
+  createdAt DateTime @default(now())
 
-model TokenUsage {
-  id            String   @id @default(cuid())
-  executionId   String
-  model         String
-  inputTokens   Int
-  outputTokens  Int
-  estimatedCost Float // in USD
-  createdAt     DateTime @default(now())
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agent   Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
-  execution AgentExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  @@unique([projectId, agentId])
+}
+
+// ── Memory ───────────────────────────────────────────────────────────────
+// One row per project. `data` is a structured-but-evolving Json blob (users,
+// objectives, recurring problems, opportunities, risks, rules, ...) rather than
+// a set of normalized tables — see docs/DATABASE.md for why. Nothing reads or
+// writes these yet; they exist so Phase 11 (Memory) has somewhere to land.
+
+model ProjectMemory {
+  id        String   @id @default(cuid())
+  projectId String   @unique
+  data      Json     @default("{}")
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model DesignMemory {
+  id        String   @id @default(cuid())
+  projectId String   @unique
+  data      Json     @default("{}")
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ── Audit ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  action         String // e.g. "project.created"
+  entityType     String // e.g. "Project"
+  entityId       String
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }

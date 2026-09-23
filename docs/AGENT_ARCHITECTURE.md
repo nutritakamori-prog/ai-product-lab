@@ -2,9 +2,11 @@
 
 ## Where agents live
 
-Agent definitions are **code**, under `src/core/agents/registry/*.ts` (created
-in Phase 5) — not database rows. See `docs/DECISIONS.md` for the reasoning.
-`AgentExecution` (the database table) only records that a run happened.
+Agent definitions are **database rows** (the `Agent` table) — see
+`docs/DATABASE.md`. `src/domain/agent.ts` defines the Zod schema every
+agent must validate against; Phase 5 populates real rows through that
+schema, one reviewed agent at a time (not seeded in bulk). See
+`docs/DECISIONS.md` for why this reverses an earlier "code only" call.
 
 ## What every agent must know
 

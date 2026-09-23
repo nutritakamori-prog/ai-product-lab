@@ -1,26 +1,30 @@
 # Agent Specification
 
 This file will hold the concrete spec for each of the 20 agents once Phase 5
-implements them. For now, it fixes the **shape** every agent config must have,
-so the first agent built in Phase 5 already sets the pattern correctly.
+implements them. For now, it fixes the **shape** every agent config must have
+— already implemented as both a database table (`Agent`, see
+`docs/DATABASE.md`) and the Zod schema that validates it
+(`src/domain/agent.ts`) — so the first agent built in Phase 5 already sets
+the pattern correctly.
 
 ## Agent config shape
 
 ```ts
+// src/domain/agent.ts (mirrors the Agent Prisma model exactly)
 interface AgentDefinition {
-  id: string; // stable, code-level id — e.g. "new-user"
+  slug: string; // stable, code-referenceable id — e.g. "new-user"
   name: string;
-  type: "experience" | "qa" | "design" | "strategy";
+  type: "EXPERIENCE" | "QA" | "DESIGN" | "STRATEGY";
   description: string;
   responsibility: string; // "what problem do I solve?"
   whenNotToCall: string; // "when should I NOT be called?" — required, not optional
   capabilities: string[];
   systemPrompt: string;
-  inputSchema: ZodSchema;
-  outputSchema: ZodSchema; // the AGENT/STATUS/FINDING/... contract
+  inputSchema: Record<string, unknown>; // JSON Schema
+  outputSchema: Record<string, unknown>; // the AGENT/STATUS/FINDING/... contract, as JSON Schema
   tokenBudget: number;
-  priority: "low" | "medium" | "high";
-  recommendedModelTier: "low_cost" | "balanced" | "high_reasoning";
+  priority: "LOW" | "MEDIUM" | "HIGH";
+  recommendedModel: "LOW_COST" | "BALANCED" | "HIGH_REASONING";
   version: string;
   enabled: boolean;
   allowedTools: string[];

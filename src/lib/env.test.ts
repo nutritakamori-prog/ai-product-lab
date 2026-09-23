@@ -31,6 +31,16 @@ describe("getEnv", () => {
     expect(() => freshGetEnv()).toThrow(/DATABASE_URL/);
   });
 
+  it("treats an empty ANTHROPIC_API_KEY the same as unset, not as invalid", async () => {
+    process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/db";
+    process.env.ANTHROPIC_API_KEY = "";
+
+    const { getEnv: freshGetEnv } = await import("./env");
+    const env = freshGetEnv();
+
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
   it("caches the result after the first successful call", async () => {
     process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/db";
     process.env.ANTHROPIC_API_KEY = "sk-test-123";

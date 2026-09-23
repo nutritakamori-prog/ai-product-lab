@@ -46,11 +46,13 @@ MEMORY
 Agents never talk to each other freely. Everything is routed and
 consolidated by the Master Orchestrator — see `docs/AGENT_ARCHITECTURE.md`.
 
-## Module map (`src/core/*`)
+## Module map
+
+### `src/core/*` — the product's own domain logic, built out phase by phase
 
 | Module | Owns |
 |---|---|
-| `agents` | Agent *definitions* (code, not DB) |
+| `agents` | Agent-specific logic beyond plain config (the config itself is the `Agent` table) |
 | `runtime` | Actually executing one agent |
 | `context` | Assembling the minimum relevant context for a run |
 | `orchestrator` | Master Orchestrator + Smart Router |
@@ -61,7 +63,23 @@ consolidated by the Master Orchestrator — see `docs/AGENT_ARCHITECTURE.md`.
 
 Each has its own `README.md` stating what it owns and — just as
 important — what it explicitly does *not* own, to keep responsibilities
-from leaking across modules as the system grows.
+from leaking across modules as the system grows. Most are still empty
+(just a README) until their phase starts.
+
+### Foundation layers (exist now)
+
+| Layer | Where | Owns |
+|---|---|---|
+| UI / routes | `src/app/*` | Pages — Dashboard, Projects, Agents, Settings |
+| Components | `src/components/*` | Reusable presentational pieces (AppShell, nav, buttons, empty states) |
+| Services | `src/services/*` | Application logic that talks to the database (create/list project, list agents, audit log) |
+| Domain | `src/domain/*` | Framework/DB-agnostic types and Zod validation (what a valid Project or Agent looks like) |
+| Database | `prisma/*`, `src/lib/db.ts` | Schema, migrations, the Prisma client singleton |
+| Configuration | `src/config/*` | App-wide static config (nav items today) |
+| Utilities | `src/lib/*` | Cross-cutting helpers (env validation, the db client) |
+
+Routes call services; services validate input against domain schemas and
+talk to the database; nothing reaches into Prisma directly from a page.
 
 ## Multitenancy (structure now, not full SaaS yet)
 
