@@ -1,0 +1,88 @@
+# System Architecture
+
+## Stack
+
+- **Frontend + Backend:** Next.js (App Router) + TypeScript + Tailwind CSS.
+  A single app for now — no monorepo, no separate backend service. The API
+  is Next.js Route Handlers.
+- **Database:** PostgreSQL + Prisma.
+- **AI provider:** Anthropic (Claude). Model tiers map to Haiku / Sonnet / Opus
+  — see `src/core/models/README.md`.
+
+## Orchestration flow
+
+```
+USER
+ ↓
+PROJECT
+ ↓
+LAP
+ ↓
+OBJECTIVE
+ ↓
+MASTER ORCHESTRATOR
+ ↓
+SMART ROUTER
+ ↓
+RELEVANT AGENTS
+ ↓
+STRUCTURED FINDINGS
+ ↓
+DEDUPLICATION
+ ↓
+ORCHESTRATOR
+ ↓
+DECISION
+ ↓
+TASK
+ ↓
+DESIGN / IMPLEMENTATION
+ ↓
+RETEST
+ ↓
+MEMORY
+```
+
+Agents never talk to each other freely. Everything is routed and
+consolidated by the Master Orchestrator — see `docs/AGENT_ARCHITECTURE.md`.
+
+## Module map (`src/core/*`)
+
+| Module | Owns |
+|---|---|
+| `agents` | Agent *definitions* (code, not DB) |
+| `runtime` | Actually executing one agent |
+| `context` | Assembling the minimum relevant context for a run |
+| `orchestrator` | Master Orchestrator + Smart Router |
+| `lap` | LAP lifecycle |
+| `findings` | Findings / Decisions / Tasks, evidence-first, deduplication |
+| `memory` | Product Memory + Design Memory |
+| `models` | Model tier routing (low cost / balanced / high reasoning) |
+
+Each has its own `README.md` stating what it owns and — just as
+important — what it explicitly does *not* own, to keep responsibilities
+from leaking across modules as the system grows.
+
+## Multitenancy (structure now, not full SaaS yet)
+
+`Organization → OrganizationMember → Project` exists from Phase 1 so every
+future entity can be scoped to an organization without a later migration
+rewrite. Billing, usage limits, and full permission logic are explicitly
+**not** built yet (Phase 14).
+
+## Database
+
+See `docs/DATABASE.md` for the schema and the reasoning behind what's in
+Phase 1 vs deferred.
+
+## Non-negotiables (carried through every phase)
+
+- No chain-of-thought is ever stored or displayed — only observations,
+  evidence, conclusions, recommendations, confidence, and a short
+  justification.
+- No finding is stated as fact without evidence. Evidence-first, always
+  ACTION → EXPECTED → OBSERVED → EVIDENCE.
+- No infinite agent discussion loops — max 2 rounds, then consensus or
+  escalate.
+- No agent runs "just in case" — the Smart Router must justify every
+  selection, to keep cost and noise down.

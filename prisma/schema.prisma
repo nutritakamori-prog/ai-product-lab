@@ -1,0 +1,277 @@
+// AI Product Lab — Phase 1 schema.
+// Only the tables needed to validate the core flow exist here. Memory, DesignBlueprint,
+// AuditLog and per-project agent config are added in the phases that actually need them
+// (see docs/DATABASE.md for the reasoning).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Identity & multi-tenancy ────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships OrganizationMember[]
+  decisions   Decision[]           @relation("DecisionDecidedBy")
+  tasks       Task[]               @relation("TaskAssignee")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members  OrganizationMember[]
+  projects Project[]
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model OrganizationMember {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrganizationRole @default(MEMBER)
+  createdAt      DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+// ── Project ──────────────────────────────────────────────────────────────
+
+enum ProjectMode {
+  INTERNAL
+  PRODUCT
+  HYBRID
+}
+
+model Project {
+  id             String      @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  mode           ProjectMode @default(HYBRID)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  laps         Lap[]
+  findings     Finding[]
+  decisions    Decision[]
+  tasks        Task[]
+}
+
+// ── LAP (one analysis run) ──────────────────────────────────────────────
+
+enum LapStatus {
+  DRAFT
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model Lap {
+  id          String      @id @default(cuid())
+  projectId   String
+  objective   String
+  mode        ProjectMode @default(HYBRID)
+  version     Int         @default(1)
+  status      LapStatus   @default(DRAFT)
+  scenarios   Json? // free-form list of scenarios this LAP will exercise
+  result      Json? // final consolidated summary once COMPLETED
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  completedAt DateTime?
+
+  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  executions AgentExecution[]
+  findings   Finding[]
+}
+
+// ── Agent execution (the Agent Runtime's audit trail) ────────────────────
+// Agent *definitions* (system prompt, schemas, capabilities) live in code under
+// src/core/agents — this table only records that a run happened and what it produced.
+
+enum AgentExecutionStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+model AgentExecution {
+  id         String               @id @default(cuid())
+  lapId      String
+  agentId    String // matches an id in the code-defined agent registry
+  status     AgentExecutionStatus @default(PENDING)
+  input      Json // the assembled context/prompt input for this run
+  output     Json? // the structured output once finished
+  error      String?
+  model      String? // e.g. "claude-haiku-4-5", set by the Model Router
+  startedAt  DateTime?
+  finishedAt DateTime?
+  durationMs Int?
+  createdAt  DateTime             @default(now())
+
+  lap         Lap          @relation(fields: [lapId], references: [id], onDelete: Cascade)
+  findings    Finding[]
+  tokenUsages TokenUsage[]
+}
+
+// ── Findings / Decisions / Tasks ──────────────────────────────────────────
+
+enum FindingType {
+  BUG
+  UX
+  UI
+  DATA
+  NAVIGATION
+  PERFORMANCE
+  RESPONSIVENESS
+  ACCESSIBILITY
+  CONTENT
+  AUTOMATION
+  OPPORTUNITY
+  FUTURE_RISK
+}
+
+enum ImpactLevel {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum FrequencyLevel {
+  ISOLATED
+  RECURRENT
+  GENERALIZED
+}
+
+enum ConfidenceLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum SolutionType {
+  QUICK_FIX
+  UX_IMPROVEMENT
+  UI_IMPROVEMENT
+  PRODUCT_IMPROVEMENT
+  AUTOMATION
+  NEW_FEATURE
+  FUTURE_IMPROVEMENT
+}
+
+enum FindingStatus {
+  OPEN
+  CONFIRMED
+  DISMISSED
+  RESOLVED
+}
+
+model Finding {
+  id             String          @id @default(cuid())
+  projectId      String
+  lapId          String
+  type           FindingType
+  title          String
+  description    String
+  evidence       String // ACTION / EXPECTED / OBSERVED, written out — never a bare claim
+  impact         ImpactLevel
+  frequency      FrequencyLevel
+  confidence     ConfidenceLevel
+  recommendation SolutionType?
+  status         FindingStatus   @default(OPEN)
+  agentIds       String[] // which agents (code ids) contributed to this finding
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lap        Lap              @relation(fields: [lapId], references: [id], onDelete: Cascade)
+  executions AgentExecution[]
+  decisions  Decision[]
+  tasks      Task[]
+}
+
+model Decision {
+  id             String          @id @default(cuid())
+  projectId      String
+  findingId      String?
+  problem        String
+  facts          String // observed, evidence-backed statements only
+  interpretation String // analysis/inference — kept visibly separate from facts
+  options        Json // [{ label, pros, cons }]
+  recommendation String
+  tradeoffs      String
+  decision       String
+  confidence     ConfidenceLevel
+  decidedById    String?
+  createdAt      DateTime        @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  finding   Finding? @relation(fields: [findingId], references: [id])
+  decidedBy User?    @relation("DecisionDecidedBy", fields: [decidedById], references: [id])
+  tasks     Task[]
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+model Task {
+  id                 String      @id @default(cuid())
+  projectId          String
+  sourceFindingId    String?
+  sourceDecisionId   String?
+  title              String
+  description        String
+  priority           ImpactLevel
+  status             TaskStatus  @default(TODO)
+  assigneeId         String?
+  acceptanceCriteria String
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceFinding  Finding?  @relation(fields: [sourceFindingId], references: [id])
+  sourceDecision Decision? @relation(fields: [sourceDecisionId], references: [id])
+  assignee       User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
+}
+
+// ── Token economy ─────────────────────────────────────────────────────────
+
+model TokenUsage {
+  id            String   @id @default(cuid())
+  executionId   String
+  model         String
+  inputTokens   Int
+  outputTokens  Int
+  estimatedCost Float // in USD
+  createdAt     DateTime @default(now())
+
+  execution AgentExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+}
