@@ -15,14 +15,19 @@ PostgreSQL + Prisma 7. Schema: `prisma/schema.prisma`.
 | `ProjectMemory` | One row per project, a structured Json blob. Nothing reads/writes it yet — exists for Phase 11. |
 | `DesignMemory` | Same idea as `ProjectMemory`, for design-specific memory. |
 | `AuditLog` | Generic audit trail. Currently written to by `services/projects.ts` on project creation — the one real writer that justifies the table existing now. |
+| `AgentExecution` | One row per agent run (Phase 2's Agent Runtime): task, status, model, input/output, tokens, cost, duration, error. Scoped directly to `Project` + `Agent` — not to a LAP, which doesn't exist yet. See `docs/DECISIONS.md`. |
 
 ## Deliberately not built yet
 
-`Lap`, `Finding`, `Decision`, `Task`, `AgentExecution`, `TokenUsage` — these
-existed briefly in an earlier pass and were removed (see `docs/DECISIONS.md`).
-They come back, likely redesigned against real requirements, when the LAP
-Engine phase starts. Nothing today needs them, and an empty table with no
-reader or writer is exactly the premature abstraction this project avoids.
+`Lap`, `Finding`, `Decision`, `Task`, `TokenUsage` — `Lap`/`Finding`/`Decision`/
+`Task` existed briefly in an earlier pass and were removed (see
+`docs/DECISIONS.md`); `TokenUsage` as a separate table turned out
+unnecessary — `AgentExecution` already carries its own token/cost fields
+directly, and nothing needs a per-execution *history* of multiple token
+readings yet. They come back, likely redesigned against real requirements,
+when the LAP Engine phase starts. Nothing today needs them, and an empty
+table with no reader or writer is exactly the premature abstraction this
+project avoids.
 
 ## Key modeling decisions
 

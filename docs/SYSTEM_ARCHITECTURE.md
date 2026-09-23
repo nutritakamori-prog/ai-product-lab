@@ -50,21 +50,20 @@ consolidated by the Master Orchestrator — see `docs/AGENT_ARCHITECTURE.md`.
 
 ### `src/core/*` — the product's own domain logic, built out phase by phase
 
-| Module | Owns |
-|---|---|
-| `agents` | Agent-specific logic beyond plain config (the config itself is the `Agent` table) |
-| `runtime` | Actually executing one agent |
-| `context` | Assembling the minimum relevant context for a run |
-| `orchestrator` | Master Orchestrator + Smart Router |
-| `lap` | LAP lifecycle |
-| `findings` | Findings / Decisions / Tasks, evidence-first, deduplication |
-| `memory` | Product Memory + Design Memory |
-| `models` | Model tier routing (low cost / balanced / high reasoning) |
+| Module | Owns | Status |
+|---|---|---|
+| `agents` | The registry (`getBySlug`/`listEnabled`/`list` over the `Agent` table) | **Implemented** (Phase 2) — no agent rows yet (Phase 5) |
+| `runtime` | Actually executing one agent: prompt → model → validate → persist | **Implemented** (Phase 2) |
+| `models` | Model tier routing + the `ModelProvider` abstraction (Anthropic today) | **Implemented** (Phase 2) |
+| `context` | Assembling the minimum relevant context for a run | Stub only — real selection logic is Phase 3 |
+| `orchestrator` | Master Orchestrator + Smart Router | Empty — Phase 4 |
+| `lap` | LAP lifecycle | Empty — Phase 6 |
+| `findings` | Findings / Decisions / Tasks, evidence-first, deduplication | Empty — Phase 7 |
+| `memory` | Product Memory + Design Memory | Empty — Phase 11 |
 
 Each has its own `README.md` stating what it owns and — just as
 important — what it explicitly does *not* own, to keep responsibilities
-from leaking across modules as the system grows. Most are still empty
-(just a README) until their phase starts.
+from leaking across modules as the system grows.
 
 ### Foundation layers (exist now)
 
@@ -73,7 +72,7 @@ from leaking across modules as the system grows. Most are still empty
 | UI / routes | `src/app/*` | Pages — Dashboard, Projects, Agents, Settings |
 | Components | `src/components/*` | Reusable presentational pieces (AppShell, nav, buttons, empty states) |
 | Services | `src/services/*` | Application logic that talks to the database (create/list project, list agents, audit log) |
-| Domain | `src/domain/*` | Framework/DB-agnostic types and Zod validation (what a valid Project or Agent looks like) |
+| Domain | `src/domain/*` | Framework/DB-agnostic types and Zod validation — what a valid Project, Agent, or agent *output* looks like |
 | Database | `prisma/*`, `src/lib/db.ts` | Schema, migrations, the Prisma client singleton |
 | Configuration | `src/config/*` | App-wide static config (nav items today) |
 | Utilities | `src/lib/*` | Cross-cutting helpers (env validation, the db client) |

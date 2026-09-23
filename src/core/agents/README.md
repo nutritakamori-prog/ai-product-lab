@@ -10,12 +10,16 @@ supported task types). The shape is defined once as a Zod schema in
 fields and `docs/DECISIONS.md` for why this lives in the database rather
 than only in code.
 
-This module (added in Phase 5) is where agent-specific logic that isn't
-just config lives — e.g. building the concrete prompt from a stored
-`Agent` row plus a task, or agent-specific output post-processing.
+`registry.ts` (Phase 2) is the only place that looks an agent up to run it —
+`getBySlug` / `listEnabled` / `list`, thin wrappers over `db.agent`. Adding
+a new agent is inserting a row; this file never changes for that. Callers
+(the future Orchestrator, or a script) use the registry to load an `Agent`,
+then hand it to `core/runtime`'s `runAgent()`.
+
+Agent-specific logic that isn't just config (e.g. per-agent output
+post-processing) lands here too, once agents exist (Phase 5).
 
 **Not this module's job:** running an agent (`core/runtime`), deciding which agents
 to call (`core/orchestrator`), or building the prompt context (`core/context`).
 
-_(Empty until Phase 5 — first agents. `src/domain/agent.ts` and the `Agent`/
-`ProjectAgent` tables already exist — see `docs/DATABASE.md`.)_
+_(Registry exists; no actual agent rows yet — Phase 5.)_

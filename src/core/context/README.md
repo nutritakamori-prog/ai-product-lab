@@ -9,4 +9,8 @@ Goal: maximum relevance, minimum tokens.
 **Not this module's job:** running the agent (`core/runtime`) or deciding which
 agents participate (`core/orchestrator`).
 
-_(Empty until Phase 3 — Context Engine.)_
+**Current state (Phase 2 stub):** `build-context.ts` only serializes whatever
+context object it's handed into text — it does no selection, relevance
+ranking, or token budgeting. The real Context Engine (the priority order
+above, picking *what* goes into that object) is Phase 3; this stub exists
+now only because `core/runtime` needs something to call.

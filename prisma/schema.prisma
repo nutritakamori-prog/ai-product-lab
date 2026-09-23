@@ -1,8 +1,8 @@
-// AI Product Lab — Foundation schema.
-// Only the 9 entities needed for this pass exist here: identity/tenancy, Project,
-// the Agent registry, and the two Memory + AuditLog scaffolds. LAP, Finding,
-// Decision, Task, AgentExecution and TokenUsage are deferred to the LAP Engine
-// phase — see docs/DATABASE.md and docs/DECISIONS.md for the reasoning.
+// AI Product Lab — Foundation + Agent Runtime schema.
+// The 9 foundation entities, plus AgentExecution (added in Phase 2 — the
+// Runtime's own audit trail of a single agent run). LAP, Finding, Decision,
+// Task and TokenUsage remain deferred to the LAP Engine phase — see
+// docs/DATABASE.md and docs/DECISIONS.md for the reasoning.
 
 generator client {
   provider = "prisma-client"
@@ -73,10 +73,11 @@ model Project {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   projectAgents ProjectAgent[]
   memory        ProjectMemory?
   designMemory  DesignMemory?
+  executions    AgentExecution[]
 }
 
 // ── Agent registry ──────────────────────────────────────────────────────
@@ -127,6 +128,7 @@ model Agent {
   updatedAt          DateTime      @updatedAt
 
   projectAgents ProjectAgent[]
+  executions    AgentExecution[]
 }
 
 model ProjectAgent {
@@ -141,6 +143,39 @@ model ProjectAgent {
   agent   Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, agentId])
+}
+
+// ── Agent Runtime execution trail ─────────────────────────────────────────
+// One row per agent run. Scoped directly to Project (not to a LAP, which
+// doesn't exist yet) — a single agent execution is a lower-level primitive
+// than a LAP; when the LAP Engine arrives it groups many of these, it
+// doesn't replace this table. See docs/DECISIONS.md.
+
+enum AgentExecutionStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+model AgentExecution {
+  id            String               @id @default(cuid())
+  projectId     String
+  agentId       String
+  task          String
+  status        AgentExecutionStatus @default(RUNNING)
+  model         String? // the concrete model id actually used, e.g. "claude-sonnet-5"
+  input         Json // assembled system/user prompt + raw context, for auditability
+  output        Json? // the validated structured output, once SUCCESS
+  error         String?
+  inputTokens   Int?
+  outputTokens  Int?
+  estimatedCost Float? // USD
+  durationMs    Int?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agent   Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
 }
 
 // ── Memory ───────────────────────────────────────────────────────────────

@@ -5,6 +5,52 @@ Newest first.
 
 ---
 
+## 2026-09-23 — Agent Runtime: model ids, structured outputs, and retry policy
+
+**Model ids (checked against Anthropic's own current pricing table):**
+`LOW_COST` → `claude-haiku-4-5`, `BALANCED` → `claude-sonnet-5`,
+`HIGH_REASONING` → `claude-opus-5`. Centralized in one map in
+`src/core/models/provider.ts` — nothing else in the codebase names a model.
+
+**Structured output, not prompt-and-hope:** `client.messages.parse()` with
+`output_config: { format: zodOutputFormat(schema) }` constrains the API
+response itself to match the schema, returning `response.parsed_output`
+already typed. This is more reliable than asking the model to "please
+respond in JSON" and regex-extracting it, and than forcing a fake "tool
+call" as a JSON-output workaround.
+
+**Two validation layers, not one:** Structured Outputs guarantees *shape*
+(every field present, right type). It can't express "status FINDING
+requires evidence/impact/recommendation to be non-null" — that's a
+cross-field business rule. So `src/domain/agent-output.ts` keeps a
+`agentOutputBaseSchema` (shape only, used to generate the JSON Schema) and
+`agentOutputSchema` (same, `.refine()`ed with the business rule, used by
+the Output Validator after the model responds). A Zod refinement doesn't
+export to JSON Schema cleanly, which is why these are two separate exports
+rather than one.
+
+**Retry policy:** invalid output (fails either validation layer) is
+retried up to 2 extra times by default, telling the model what was wrong
+and asking again — never retried silently, never saved as a success.
+Transport/API errors (network, rate limit, auth) are *not* retried by the
+Runtime's own loop — the Anthropic SDK already retries transient failures
+(408/409/429/5xx) internally; retrying again on top would just duplicate
+that with worse error messages.
+
+**Token budget = a real cap, not a logged number:** `agent.tokenBudget` is
+passed straight through as the API's own `max_tokens` on every attempt —
+the model physically cannot generate past it, rather than the Runtime
+checking a count after the fact.
+
+**`AgentExecution` is scoped to Project, not to a future Lap:** a single
+agent run is a lower-level primitive than a LAP (which will group many
+executions toward one objective). Making `lapId` required now would mean
+either inventing a placeholder Lap or leaving it nullable for a phase that
+doesn't exist — scoping directly to `Project` avoids both, and adding an
+optional `lapId` later is a trivial additive migration.
+
+---
+
 ## 2026-09-23 — Foundation pages render dynamically, not statically
 
 **Problem:** `next build` prerendered `/`, `/projects`, `/agents`,

@@ -35,6 +35,23 @@ interface AgentDefinition {
 `whenNotToCall` is not decorative — the Smart Router reads it to decide
 whether an agent belongs in a given LAP at all.
 
+## Output contract (implemented, Phase 2)
+
+Every agent's actual output is validated against **one shared schema**,
+`src/domain/agent-output.ts` — see `docs/AGENT_ARCHITECTURE.md` for the
+field list. It is deliberately not customized per agent: the whole point
+of "every agent returns the same shape" (original spec §14) is that the
+Orchestrator and Findings pipeline can treat any agent's result uniformly.
+
+**Known gap:** the `Agent.outputSchema` column exists (every agent row has
+one) but the Runtime does not currently read it — it always validates
+against the shared schema regardless of what's stored there. Today it's
+informational only (a per-row JSON Schema snapshot, useful for an eventual
+agent-authoring UI to show what an agent returns). Revisit in Phase 5 if a
+real need for genuinely per-agent output shapes shows up; until then,
+storing a schema there that nothing enforces would be misleading, so this
+gap is written down rather than papered over with unused validation code.
+
 ## Per-agent specs
 
 _(Filled in per agent as Phase 5 implements each one — not written in bulk

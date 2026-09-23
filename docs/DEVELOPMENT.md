@@ -4,8 +4,12 @@
 
 - Node.js 20+ and npm.
 - A local PostgreSQL 16 (either via Docker or a native install — see below).
-- An Anthropic API key (https://console.anthropic.com/settings/keys) once
-  agents start actually calling models, from Phase 2 onward.
+- An Anthropic API key (https://console.anthropic.com/settings/keys) — the
+  Agent Runtime (Phase 2) needs it to actually call Claude. Without it, the
+  app still builds and runs fine (nothing on any page calls the Runtime
+  yet); you'll only hit the "ANTHROPIC_API_KEY is not set" error if you
+  call `runAgent()` yourself. The test suite never needs a real key — the
+  Runtime's own tests inject a fake `ModelProvider`.
 
 ## First-time setup
 
@@ -44,8 +48,8 @@ npm run dev        # http://localhost:3000
 
 ```bash
 npm run lint
-npx tsc --noEmit    # typecheck
-npm test            # once tests exist, from Phase 2 onward
+npm run typecheck
+npm test
 npm run build
 ```
 
@@ -56,8 +60,8 @@ All four must pass clean — this is a hard gate per phase, not a suggestion.
 | Phase | What | Gate |
 |---|---|---|
 | 0 | Architecture & planning | **GATE 0** ✅ approved |
-| 1 | Foundation (this) | **GATE 1** |
-| 2 | Agent Runtime | GATE 2 |
+| 1 | Foundation | **GATE 1** ✅ approved |
+| 2 | Agent Runtime (this) | **GATE 2** |
 | 3 | Context Engine | — |
 | 4 | Master Orchestrator | — |
 | 5 | First working agents | **GATE 3** |
