@@ -1,10 +1,8 @@
-import type { Agent } from "@/generated/prisma/client";
+import type { AgentDefinition } from "@agents/system/agent-protocol";
+import { EVIDENCE_FIRST_REMINDER } from "@agents/system/evidence-rules";
 import { buildContextBlock } from "@/core/context/build-context";
 
-const EVIDENCE_FIRST_REMINDER =
-  'Only report what you can back with concrete evidence (ACTION/EXPECTED/OBSERVED). If you have nothing concrete to report, respond with status "NO_FINDING" instead of inventing one. Never state something as fact without evidence.';
-
-export function buildSystemPrompt(agent: Agent): string {
+export function buildSystemPrompt(agent: Pick<AgentDefinition, "systemPrompt">): string {
   return [agent.systemPrompt, "", EVIDENCE_FIRST_REMINDER].join("\n");
 }
 

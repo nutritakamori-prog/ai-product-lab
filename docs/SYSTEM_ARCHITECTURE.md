@@ -48,11 +48,22 @@ consolidated by the Master Orchestrator — see `docs/AGENT_ARCHITECTURE.md`.
 
 ## Module map
 
-### `src/core/*` — the product's own domain logic, built out phase by phase
+### `/agents` — the agent library (versioned behavior, not code logic)
+
+One file per agent, grouped by category: `agents/experience/`, `agents/qa/`,
+`agents/design/`, `agents/strategy/`, `agents/orchestration/`. Shared rules
+in `agents/system/` (`agent-protocol`, `routing-rules`, `evidence-rules`,
+`decision-framework`, `token-economy`). `agents/index.ts` is the static
+list the Registry reads. See `docs/AGENT_ARCHITECTURE.md`.
+
+Only `new-user` exists today (`agents/experience/new-user.ts`) — built to
+validate the pipeline, not as a finished prompt.
+
+### `src/core/*` — the product's own execution logic, built out phase by phase
 
 | Module | Owns | Status |
 |---|---|---|
-| `agents` | The registry (`getBySlug`/`listEnabled`/`list` over the `Agent` table) | **Implemented** (Phase 2) — no agent rows yet (Phase 5) |
+| `agents` | The registry (`getBySlug`/`listEnabled`/`list`) — merges an `/agents` file's behavior with the `Agent` table's operational state | **Implemented** (Phase 2, adapted for the file-based library) |
 | `runtime` | Actually executing one agent: prompt → model → validate → persist | **Implemented** (Phase 2) |
 | `models` | Model tier routing + the `ModelProvider` abstraction (Anthropic today) | **Implemented** (Phase 2) |
 | `context` | Assembling the minimum relevant context for a run | Stub only — real selection logic is Phase 3 |
@@ -72,7 +83,7 @@ from leaking across modules as the system grows.
 | UI / routes | `src/app/*` | Pages — Dashboard, Projects, Agents, Settings |
 | Components | `src/components/*` | Reusable presentational pieces (AppShell, nav, buttons, empty states) |
 | Services | `src/services/*` | Application logic that talks to the database (create/list project, list agents, audit log) |
-| Domain | `src/domain/*` | Framework/DB-agnostic types and Zod validation — what a valid Project, Agent, or agent *output* looks like |
+| Domain | `src/domain/*` | Framework/DB-agnostic types and Zod validation — what a valid Project or agent *output* looks like. Agent *definition* validation lives in `agents/system/agent-protocol.ts` instead — see `docs/AGENT_ARCHITECTURE.md`. |
 | Database | `prisma/*`, `src/lib/db.ts` | Schema, migrations, the Prisma client singleton |
 | Configuration | `src/config/*` | App-wide static config (nav items today) |
 | Utilities | `src/lib/*` | Cross-cutting helpers (env validation, the db client) |

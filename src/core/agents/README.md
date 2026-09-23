@@ -1,25 +1,27 @@
 # Agents
 
-**Responsibility:** the *definitions* of every agent (New User, QA Investigator, UX Architect, etc).
+**Responsibility:** resolve an agent by id into everything `core/runtime`
+needs to execute it.
 
-Each agent is a row in the `Agent` table (name, type, description,
-responsibility, capabilities, system prompt, input/output schema, token
-budget, priority, recommended model, version, enabled flag, allowed tools,
-supported task types). The shape is defined once as a Zod schema in
-`src/domain/agent.ts` — see `docs/AGENT_SPECIFICATION.md` for the exact
-fields and `docs/DECISIONS.md` for why this lives in the database rather
-than only in code.
+Agent *behavior* (role, objective, responsibilities, constraints, system
+prompt) lives in versioned files under `/agents/{category}/{id}.ts`,
+validated against `agents/system/agent-protocol.ts`. Agent *operational
+state* (category, model tier, token budget, enabled) lives in the `Agent`
+table. See `docs/AGENT_ARCHITECTURE.md` and `docs/DECISIONS.md` for why
+it's split this way.
 
-`registry.ts` (Phase 2) is the only place that looks an agent up to run it —
-`getBySlug` / `listEnabled` / `list`, thin wrappers over `db.agent`. Adding
-a new agent is inserting a row; this file never changes for that. Callers
-(the future Orchestrator, or a script) use the registry to load an `Agent`,
-then hand it to `core/runtime`'s `runAgent()`.
+`registry.ts` is the only place that merges the two — `getBySlug` /
+`listEnabled` / `list` return a `ResolvedAgent` (the file's behavior plus
+the database's current operational values; the database wins for
+enabled/tokenBudget/modelTier once a row exists). Adding a new agent means
+adding a file to `/agents` and one line in `agents/index.ts` — this file
+never changes for that.
 
 Agent-specific logic that isn't just config (e.g. per-agent output
-post-processing) lands here too, once agents exist (Phase 5).
+post-processing) lands here too, once real agents exist (Phase 5).
 
 **Not this module's job:** running an agent (`core/runtime`), deciding which agents
 to call (`core/orchestrator`), or building the prompt context (`core/context`).
 
-_(Registry exists; no actual agent rows yet — Phase 5.)_
+_(Registry + the library scaffold exist; only one real agent — `new-user` —
+built to validate the pipeline. Phase 5 adds the rest.)_

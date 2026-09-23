@@ -1,9 +1,14 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { getDefaultOrganization } from "@/services/organizations";
-import { setModelProviderForTesting, type ModelProvider, type StructuredCompletionResult } from "@/core/models/provider";
+import {
+  setModelProviderForTesting,
+  type ModelProvider,
+  type StructuredCompletionResult,
+} from "@/core/models/provider";
 import { runAgent } from "./run-agent";
-import type { Agent, Project } from "@/generated/prisma/client";
+import type { ResolvedAgent } from "@/core/agents/registry";
+import type { Project } from "@/generated/prisma/client";
 
 const VALID_OUTPUT = {
   agent: "test-runtime-agent",
@@ -40,12 +45,37 @@ function fakeProvider(
   };
 }
 
+/**
+ * A synthetic ResolvedAgent — deliberately not going through the real
+ * agent library or Registry, so these tests exercise only the Runtime's
+ * own generic logic (retry, persistence, budget enforcement), independent
+ * of what any real agent's file happens to say.
+ */
+function makeTestAgent(dbId: string, overrides: Partial<ResolvedAgent> = {}): ResolvedAgent {
+  return {
+    id: "test-runtime-agent",
+    dbId,
+    name: "Test Runtime Agent",
+    category: "QA",
+    role: "A throwaway agent for runtime tests.",
+    objective: "Nothing real.",
+    responsibilities: ["Exist only for tests."],
+    constraints: ["Never used outside the test suite."],
+    whenNotToCall: "Never — test fixture.",
+    systemPrompt: "You are a test agent.",
+    tokenBudget: 500,
+    modelTier: "LOW_COST",
+    enabled: true,
+    ...overrides,
+  };
+}
+
 // Real integration test against local Postgres, with a FAKE model provider
 // injected — proves the runtime's own logic (retry, persistence, token/cost
 // tracking, budget enforcement) without spending real API tokens.
 describe("runAgent (integration, fake provider)", () => {
   let project: Project;
-  let agent: Agent;
+  let agent: ResolvedAgent;
   const executionIds: string[] = [];
 
   beforeAll(async () => {
@@ -53,25 +83,16 @@ describe("runAgent (integration, fake provider)", () => {
     project = await db.project.create({
       data: { organizationId: organization.id, name: `Runtime test project ${Date.now()}` },
     });
-    agent = await db.agent.create({
+    const row = await db.agent.create({
       data: {
         slug: `test-runtime-agent-${Date.now()}`,
-        name: "Test Runtime Agent",
-        type: "QA",
-        description: "Throwaway agent for runtime tests.",
-        responsibility: "Nothing real.",
-        whenNotToCall: "Never — test fixture.",
-        capabilities: [],
-        systemPrompt: "You are a test agent.",
-        inputSchema: {},
-        outputSchema: {},
+        category: "QA",
         tokenBudget: 500,
-        recommendedModel: "LOW_COST",
+        modelTier: "LOW_COST",
         enabled: true,
-        allowedTools: [],
-        supportedTaskTypes: [],
       },
     });
+    agent = makeTestAgent(row.id);
   });
 
   afterEach(() => {
@@ -82,7 +103,7 @@ describe("runAgent (integration, fake provider)", () => {
     if (executionIds.length) {
       await db.agentExecution.deleteMany({ where: { id: { in: executionIds } } });
     }
-    await db.agent.delete({ where: { id: agent.id } });
+    await db.agent.delete({ where: { id: agent.dbId } });
     await db.project.delete({ where: { id: project.id } });
     await db.$disconnect();
   });
@@ -102,6 +123,7 @@ describe("runAgent (integration, fake provider)", () => {
     expect(execution.outputTokens).toBe(50);
     expect(execution.estimatedCost).toBeGreaterThan(0);
     expect(execution.model).toBe("claude-haiku-4-5");
+    expect(execution.agentId).toBe(agent.dbId);
   });
 
   it("retries on invalid output and succeeds on the second attempt", async () => {
@@ -177,11 +199,11 @@ describe("runAgent (integration, fake provider)", () => {
 
   it("throws without creating an execution when the agent is disabled", async () => {
     const disabledAgent = { ...agent, enabled: false };
-    const before = await db.agentExecution.count({ where: { agentId: agent.id } });
+    const before = await db.agentExecution.count({ where: { agentId: agent.dbId } });
 
     await expect(runAgent({ agent: disabledAgent, project, task: "x" })).rejects.toThrow(/disabled/i);
 
-    const after = await db.agentExecution.count({ where: { agentId: agent.id } });
+    const after = await db.agentExecution.count({ where: { agentId: agent.dbId } });
     expect(after).toBe(before);
   });
 });

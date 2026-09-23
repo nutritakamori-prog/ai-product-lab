@@ -1,68 +1,90 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { AgentRegistry } from "./registry";
 
-// Real integration test against local Postgres — proves adding a row is all
-// it takes for the registry to see a new agent, with no code changes.
+// Real integration test against local Postgres and the real agent library
+// (only "new-user" exists in it right now). The Agent row this creates for
+// "new-user" is NOT cleaned up afterward — a library agent's operational row
+// is meant to persist, exactly like it would in real use; getBySlug/list are
+// find-or-create and idempotent, so re-running these tests is safe.
 describe("AgentRegistry (integration)", () => {
-  const createdIds: string[] = [];
-
-  afterAll(async () => {
-    if (createdIds.length) {
-      await db.agent.deleteMany({ where: { id: { in: createdIds } } });
-    }
-    await db.$disconnect();
-  });
-
-  async function createTestAgent(overrides: Partial<Parameters<typeof db.agent.create>[0]["data"]> = {}) {
-    const agent = await db.agent.create({
-      data: {
-        slug: `test-agent-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        name: "Test Agent",
-        type: "QA",
-        description: "A throwaway agent for registry tests.",
-        responsibility: "Nothing real.",
-        whenNotToCall: "Never — this is a test fixture.",
-        capabilities: [],
-        systemPrompt: "You are a test agent.",
-        inputSchema: {},
-        outputSchema: {},
-        tokenBudget: 1000,
-        enabled: false,
-        allowedTools: [],
-        supportedTaskTypes: [],
-        ...overrides,
-      },
+  describe("discovery", () => {
+    it("lists every agent id known to the library", () => {
+      expect(AgentRegistry.discoverSlugs()).toContain("new-user");
     });
-    createdIds.push(agent.id);
-    return agent;
-  }
-
-  it("finds an agent by slug after it's inserted", async () => {
-    const agent = await createTestAgent();
-    const found = await AgentRegistry.getBySlug(agent.slug);
-    expect(found?.id).toBe(agent.id);
   });
 
-  it("returns null for a slug that doesn't exist", async () => {
-    const found = await AgentRegistry.getBySlug("does-not-exist-xyz");
-    expect(found).toBeNull();
+  describe("loadDefinition", () => {
+    it("loads and validates the new-user definition from its file", () => {
+      const definition = AgentRegistry.loadDefinition("new-user");
+      expect(definition).not.toBeNull();
+      expect(definition?.id).toBe("new-user");
+      expect(definition?.category).toBe("EXPERIENCE");
+      expect(definition?.systemPrompt.length).toBeGreaterThan(0);
+      // whenNotToCall is required, not decorative — confirm it's really there.
+      expect(definition?.whenNotToCall.length).toBeGreaterThan(0);
+    });
+
+    it("returns null for an id that doesn't exist in the library", () => {
+      expect(AgentRegistry.loadDefinition("does-not-exist")).toBeNull();
+    });
   });
 
-  it("listEnabled only returns enabled agents", async () => {
-    const enabled = await createTestAgent({ enabled: true });
-    const disabled = await createTestAgent({ enabled: false });
+  describe("getBySlug", () => {
+    it("resolves new-user with its operational state merged in", async () => {
+      const agent = await AgentRegistry.getBySlug("new-user");
+      expect(agent).not.toBeNull();
+      expect(agent?.id).toBe("new-user");
+      expect(agent?.dbId).toBeTruthy();
+      expect(agent?.tokenBudget).toBeGreaterThan(0);
+      expect(typeof agent?.enabled).toBe("boolean");
+    });
 
-    const list = await AgentRegistry.listEnabled();
-    const ids = list.map((a) => a.id);
+    it("returns null for an unknown slug without touching the database", async () => {
+      const before = await db.agent.count();
+      const agent = await AgentRegistry.getBySlug("does-not-exist");
+      const after = await db.agent.count();
+      expect(agent).toBeNull();
+      expect(after).toBe(before);
+    });
 
-    expect(ids).toContain(enabled.id);
-    expect(ids).not.toContain(disabled.id);
+    it("is idempotent — calling it twice doesn't create a second row", async () => {
+      await AgentRegistry.getBySlug("new-user");
+      const countAfterFirst = await db.agent.count({ where: { slug: "new-user" } });
+      await AgentRegistry.getBySlug("new-user");
+      const countAfterSecond = await db.agent.count({ where: { slug: "new-user" } });
+      expect(countAfterFirst).toBe(1);
+      expect(countAfterSecond).toBe(1);
+    });
+
+    it("never overwrites an operator's change to enabled once the row exists", async () => {
+      await AgentRegistry.getBySlug("new-user"); // ensure the row exists
+      await db.agent.update({ where: { slug: "new-user" }, data: { enabled: false } });
+
+      const agent = await AgentRegistry.getBySlug("new-user");
+      expect(agent?.enabled).toBe(false); // DB wins, not the file's `enabled: true`
+
+      // restore, so other tests/manual runs see the library's intended default
+      await db.agent.update({ where: { slug: "new-user" }, data: { enabled: true } });
+    });
   });
 
-  it("list returns every agent regardless of enabled state", async () => {
-    const agent = await createTestAgent({ enabled: false });
-    const list = await AgentRegistry.list();
-    expect(list.map((a) => a.id)).toContain(agent.id);
+  describe("list / listEnabled", () => {
+    it("list includes new-user", async () => {
+      const all = await AgentRegistry.list();
+      expect(all.map((a) => a.id)).toContain("new-user");
+    });
+
+    it("listEnabled only includes agents whose resolved state is enabled", async () => {
+      await db.agent.update({ where: { slug: "new-user" }, data: { enabled: true } });
+      const enabled = await AgentRegistry.listEnabled();
+      expect(enabled.map((a) => a.id)).toContain("new-user");
+
+      await db.agent.update({ where: { slug: "new-user" }, data: { enabled: false } });
+      const disabled = await AgentRegistry.listEnabled();
+      expect(disabled.map((a) => a.id)).not.toContain("new-user");
+
+      await db.agent.update({ where: { slug: "new-user" }, data: { enabled: true } }); // restore
+    });
   });
 });

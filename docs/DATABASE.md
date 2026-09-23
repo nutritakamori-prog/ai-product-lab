@@ -10,7 +10,7 @@ PostgreSQL + Prisma 7. Schema: `prisma/schema.prisma`.
 | `Organization` | Tenant boundary — everything scopes to one eventually. |
 | `OrganizationMember` | User ↔ Organization, with a role (OWNER/ADMIN/MEMBER). |
 | `Project` | The product/project being analyzed. Has a mode (INTERNAL/PRODUCT/HYBRID). |
-| `Agent` | An agent's full configuration — system prompt, input/output schema, token budget, priority, recommended model tier, version, enabled flag, allowed tools, supported task types. See `docs/AGENT_SPECIFICATION.md`. |
+| `Agent` | Operational state only — `slug`, `category`, `modelTier`, `tokenBudget`, `enabled`. Behavior (system prompt, role, objective, etc.) lives in `/agents/*` files, not here. See `docs/AGENT_ARCHITECTURE.md`. |
 | `ProjectAgent` | Which agents are enabled for a given project, with optional per-project config overrides. |
 | `ProjectMemory` | One row per project, a structured Json blob. Nothing reads/writes it yet — exists for Phase 11. |
 | `DesignMemory` | Same idea as `ProjectMemory`, for design-specific memory. |
@@ -33,10 +33,15 @@ project avoids.
 
 - **IDs are `cuid()`**, not auto-increment integers — safe to generate
   client-side, no collision risk across future distributed writes.
-- **`Agent` is a real table now**, reversing an earlier "code only" call —
-  see `docs/DECISIONS.md` for why. `src/domain/agent.ts` still defines the
-  Zod schema that validates an agent's shape; the table is what actually
-  exists and is enabled per project.
+- **`Agent` holds operational state, not behavior.** Behavior (system
+  prompt, role, objective, responsibilities, constraints) lives in
+  versioned files under `/agents`, validated by
+  `agents/system/agent-protocol.ts`. The table only tracks what an
+  operator might change without a deploy: category, model tier, token
+  budget, enabled. See `docs/DECISIONS.md` — this reverses an earlier
+  "put everything in the database" call once real usage showed that
+  behavior needs code review and git history more than it needs to be
+  editable without a deploy.
 - **`ProjectMemory.data` / `DesignMemory.data` are `Json`**, not normalized
   tables — each is a structured-but-evolving blob (users, objectives,
   recurring problems, design tokens, ...) that doesn't earn its own tables

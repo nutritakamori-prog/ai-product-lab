@@ -5,6 +5,79 @@ Newest first.
 
 ---
 
+## 2026-09-23 — Agents moved from database rows to versioned files (reverses the Phase 2 reversal)
+
+**Problem:** a user-requested audit flagged that storing agent *behavior*
+(systemPrompt, capabilities, schemas) as database rows made "add an agent
+without a deploy" true, but lost code review, diffability, and git history
+for the thing that most needs it — what an agent is actually told to do.
+The ask: treat agents as a modular, versioned library (`/agents`), with
+the database reduced to operational state only.
+
+**Decision:**
+- Agent *behavior* (role, objective, responsibilities, constraints,
+  systemPrompt) now lives in `/agents/{category}/{id}.ts`, one file per
+  agent, validated against `agents/system/agent-protocol.ts`'s
+  `agentDefinitionSchema`.
+- The `Agent` table is now lean and purely operational: `slug`, `category`,
+  `modelTier`, `tokenBudget`, `enabled`. Removed: `name`, `description`,
+  `responsibility`, `whenNotToCall`, `capabilities`, `systemPrompt`,
+  `inputSchema`, `outputSchema`, `priority`, `version`, `allowedTools`,
+  `supportedTaskTypes` — all now sourced from the file. The `AgentPriority`
+  enum was removed with it (nothing else used it).
+- `src/core/agents/registry.ts` (unchanged file, adapted logic — no second
+  Registry) now merges a file definition with its DB row: **first
+  discovery creates the row seeded from the file's defaults; once it
+  exists, the DB's `enabled`/`tokenBudget`/`modelTier` win** — an operator
+  can change these without a deploy, which was the whole point of Phase
+  2's original database-backed design, kept intact.
+- `src/domain/agent.ts` (the old, now-fully-superseded schema) was deleted
+  — nothing outside its own test imported it (checked before deleting),
+  and keeping both shapes side by side would have been exactly the
+  "different structures to represent an agent" duplication this change
+  was meant to prevent.
+- Added `ORCHESTRATION` to the `AgentType`/category enum, since the
+  library's folder layout includes `/agents/orchestration` (for future
+  agents that participate in orchestration — distinct from
+  `src/core/orchestrator`, the Router/Orchestrator *code*).
+
+**Migration:** additive/simplifying only, on a table with zero rows in
+every environment that matters — no data was ever at risk.
+
+---
+
+## 2026-09-23 — Agent discovery: a static index, not a runtime filesystem scan
+
+**Problem:** "discover agents in `/agents`" could mean either scanning the
+directory at runtime (`fs.readdir` + dynamic `import()`) or an explicit
+list.
+
+**Facts:** this is a bundled Next.js app. A dynamic `import()` over a path
+computed at runtime is not reliably included by the bundler in a
+production build — dynamic imports need a statically analyzable pattern
+to be traced and bundled correctly.
+
+**Decision:** `agents/index.ts` is a plain array of static imports.
+Adding an agent costs one import line + one array entry — not "scanning
+the filesystem," but not "rebuilding the system" either, and it's the
+standard safe pattern for a plugin-style registry in a bundled app.
+Verified with a full `next build` after wiring it up.
+
+---
+
+## 2026-09-23 — System rule files under `/agents/system/` are thin re-exports, not new logic
+
+Per the explicit instruction to reuse rather than duplicate: `evidence-rules.ts`
+holds the evidence-first reminder text (moved out of
+`core/runtime/build-prompt.ts`, which now imports it — one copy, not two).
+`token-economy.ts` and `routing-rules.ts` re-export existing constants from
+`core/models/provider.ts` and `agent-protocol.ts` respectively.
+`decision-framework.ts` is genuinely new but inert — a documented
+placeholder for Phase 7, since no Decision entity exists to enforce
+anything against yet.
+
+---
+
 ## 2026-09-23 — Agent Runtime: model ids, structured outputs, and retry policy
 
 **Model ids (checked against Anthropic's own current pricing table):**

@@ -1,39 +1,40 @@
 # Agent Specification
 
 This file will hold the concrete spec for each of the 20 agents once Phase 5
-implements them. For now, it fixes the **shape** every agent config must have
-— already implemented as both a database table (`Agent`, see
-`docs/DATABASE.md`) and the Zod schema that validates it
-(`src/domain/agent.ts`) — so the first agent built in Phase 5 already sets
-the pattern correctly.
+implements them. For now, it fixes the **shape** every agent definition
+file must have — implemented as a Zod schema in
+`agents/system/agent-protocol.ts`, one file per agent under
+`/agents/{category}/{id}.ts` — so the first agent (`new-user`) already
+sets the pattern correctly for the ones that follow.
 
-## Agent config shape
+## Agent definition shape
 
 ```ts
-// src/domain/agent.ts (mirrors the Agent Prisma model exactly)
+// agents/system/agent-protocol.ts
 interface AgentDefinition {
-  slug: string; // stable, code-referenceable id — e.g. "new-user"
+  id: string; // stable, file-referenceable id — e.g. "new-user"
   name: string;
-  type: "EXPERIENCE" | "QA" | "DESIGN" | "STRATEGY";
-  description: string;
-  responsibility: string; // "what problem do I solve?"
+  category: "EXPERIENCE" | "QA" | "DESIGN" | "STRATEGY" | "ORCHESTRATION";
+  role: string; // who this agent is pretending to be / acting as
+  objective: string; // what it's trying to accomplish
+  responsibilities: string[];
+  constraints: string[];
   whenNotToCall: string; // "when should I NOT be called?" — required, not optional
-  capabilities: string[];
   systemPrompt: string;
-  inputSchema: Record<string, unknown>; // JSON Schema
-  outputSchema: Record<string, unknown>; // the AGENT/STATUS/FINDING/... contract, as JSON Schema
+  outputSchema?: Record<string, unknown>; // optional — defaults to the shared contract, see below
   tokenBudget: number;
-  priority: "LOW" | "MEDIUM" | "HIGH";
-  recommendedModel: "LOW_COST" | "BALANCED" | "HIGH_REASONING";
-  version: string;
+  modelTier: "LOW_COST" | "BALANCED" | "HIGH_REASONING";
   enabled: boolean;
-  allowedTools: string[];
-  supportedTaskTypes: string[];
 }
 ```
 
 `whenNotToCall` is not decorative — the Smart Router reads it to decide
 whether an agent belongs in a given LAP at all.
+
+`tokenBudget`/`modelTier`/`enabled` here are the agent author's *defaults*.
+The `Agent` database table holds the actual operational values, seeded
+from these the first time the agent is discovered — see
+`docs/AGENT_ARCHITECTURE.md` and `docs/DECISIONS.md`.
 
 ## Output contract (implemented, Phase 2)
 
@@ -43,14 +44,12 @@ field list. It is deliberately not customized per agent: the whole point
 of "every agent returns the same shape" (original spec §14) is that the
 Orchestrator and Findings pipeline can treat any agent's result uniformly.
 
-**Known gap:** the `Agent.outputSchema` column exists (every agent row has
-one) but the Runtime does not currently read it — it always validates
-against the shared schema regardless of what's stored there. Today it's
-informational only (a per-row JSON Schema snapshot, useful for an eventual
-agent-authoring UI to show what an agent returns). Revisit in Phase 5 if a
-real need for genuinely per-agent output shapes shows up; until then,
-storing a schema there that nothing enforces would be misleading, so this
-gap is written down rather than papered over with unused validation code.
+**Known gap:** `AgentDefinition.outputSchema` (optional, in the file) is
+not currently read by the Runtime — it always validates against the
+shared schema regardless of what an individual agent file sets. No agent
+sets it today (`new-user` omits it). Revisit if a real need for genuinely
+per-agent output shapes shows up; until then, this gap is written down
+rather than silently ignored.
 
 ## Per-agent specs
 
@@ -59,7 +58,10 @@ ahead of time, so each spec reflects a real, tested prompt rather than a
 guess.)_
 
 ### Experience Lab
-- New User — TBD (Phase 5)
+- **New User** — ✅ built (`agents/experience/new-user.ts`), small and cheap
+  (LOW_COST tier, 800-token budget) — built to validate the pipeline, not
+  as a finished, tuned prompt. Simulates a first-time user, flags obvious
+  friction in their very first session.
 - Clinic / Office User — TBD
 - Impatient User — TBD
 - Confused User — TBD

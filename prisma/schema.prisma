@@ -81,22 +81,20 @@ model Project {
 }
 
 // ── Agent registry ──────────────────────────────────────────────────────
-// Unlike the Phase 0 draft, agent definitions live here as data (not only code),
-// so they carry the rich metadata the product spec calls for (system prompt,
-// schemas, budget, etc.) and can eventually be managed without a deploy.
-// See docs/DECISIONS.md for why this reverses the earlier code-only decision.
+// Agent BEHAVIOR (system prompt, role, objective, responsibilities,
+// constraints, output shape) now lives in versioned files under /agents —
+// see docs/DECISIONS.md. This table holds only OPERATIONAL state per agent
+// slug: which category/tier it is, its current token budget, and whether
+// it's enabled — the things an operator might change without a deploy.
+// It does not depend on systemPrompt (or any behavior field) as a source
+// of truth anymore.
 
 enum AgentType {
   EXPERIENCE
   QA
   DESIGN
   STRATEGY
-}
-
-enum AgentPriority {
-  LOW
-  MEDIUM
-  HIGH
+  ORCHESTRATION
 }
 
 enum ModelTier {
@@ -106,26 +104,14 @@ enum ModelTier {
 }
 
 model Agent {
-  id                 String        @id @default(cuid())
-  slug               String        @unique // stable code-referenceable id, e.g. "new-user"
-  name               String
-  type               AgentType
-  description        String
-  responsibility     String // "what problem do I solve?"
-  whenNotToCall      String // "when should I NOT be called?" — required, not decorative
-  capabilities       String[]
-  systemPrompt       String
-  inputSchema        Json // JSON Schema describing expected input
-  outputSchema       Json // JSON Schema describing the AGENT/STATUS/FINDING/... contract
-  tokenBudget        Int
-  priority           AgentPriority @default(MEDIUM)
-  recommendedModel   ModelTier     @default(BALANCED)
-  version            String        @default("0.1.0")
-  enabled            Boolean       @default(false)
-  allowedTools       String[]
-  supportedTaskTypes String[]
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  id          String    @id @default(cuid())
+  slug        String    @unique // matches the file definition's `id`, e.g. "new-user"
+  category    AgentType
+  modelTier   ModelTier @default(BALANCED)
+  tokenBudget Int
+  enabled     Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   projectAgents ProjectAgent[]
   executions    AgentExecution[]

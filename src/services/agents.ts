@@ -1,10 +1,10 @@
-import { db } from "@/lib/db";
+import { AgentRegistry } from "@/core/agents/registry";
 
 /**
- * Read-only for now. The Agent registry is populated in Phase 5 — this only
- * exists so the Agents page can show the real (currently empty) state
- * instead of a mockup.
+ * Thin pass-through to the Registry, which merges each library definition
+ * with its operational state. Kept as a service (not called directly from
+ * pages) so the UI never imports core/agents directly.
  */
-export async function listAgents() {
-  return db.agent.findMany({ orderBy: { name: "asc" } });
+export function listAgents() {
+  return AgentRegistry.list();
 }

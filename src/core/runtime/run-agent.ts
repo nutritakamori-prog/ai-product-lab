@@ -1,12 +1,13 @@
-import type { Agent, Project, Prisma } from "@/generated/prisma/client";
+import type { Project, Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { getModelProvider, MODEL_TIER_TO_ID, estimateCost } from "@/core/models/provider";
 import { buildSystemPrompt, buildUserPrompt } from "@/core/runtime/build-prompt";
 import { validateAgentOutput } from "@/core/runtime/output-validator";
 import { agentOutputBaseSchema, type AgentOutput } from "@/domain/agent-output";
+import type { ResolvedAgent } from "@/core/agents/registry";
 
 export interface RunAgentInput {
-  agent: Agent;
+  agent: ResolvedAgent;
   project: Pick<Project, "id">;
   task: string;
   context?: Record<string, unknown>;
@@ -35,10 +36,10 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   const maxRetries = input.executionConfig?.maxRetries ?? DEFAULT_MAX_RETRIES;
 
   if (!agent.enabled) {
-    throw new Error(`Agent "${agent.slug}" is disabled and cannot be executed.`);
+    throw new Error(`Agent "${agent.id}" is disabled and cannot be executed.`);
   }
 
-  const model = MODEL_TIER_TO_ID[agent.recommendedModel];
+  const model = MODEL_TIER_TO_ID[agent.modelTier];
 
   const system = buildSystemPrompt(agent);
   const prompt = buildUserPrompt(task, context);
@@ -46,7 +47,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   const execution = await db.agentExecution.create({
     data: {
       projectId: project.id,
-      agentId: agent.id,
+      agentId: agent.dbId,
       task,
       status: "RUNNING",
       model,

@@ -11,7 +11,7 @@ export default async function AgentsPage() {
     <>
       <PageHeader
         title="Agents"
-        description="The agent registry. Populated in Phase 5 — nothing runs yet."
+        description="The agent library. Most categories are still empty — Phase 5 fills them in one reviewed agent at a time."
       />
       <div className="px-8 py-8">
         {agents.length === 0 ? (
@@ -25,7 +25,7 @@ export default async function AgentsPage() {
               <li key={agent.id} className="flex items-center justify-between px-4 py-3">
                 <div>
                   <p className="text-sm font-medium">{agent.name}</p>
-                  <p className="mt-0.5 text-sm text-muted">{agent.responsibility}</p>
+                  <p className="mt-0.5 text-sm text-muted">{agent.objective}</p>
                 </div>
                 <span className="rounded-full border border-border px-2.5 py-0.5 text-xs text-muted">
                   {agent.enabled ? "Enabled" : "Disabled"}
