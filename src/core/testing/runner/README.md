@@ -66,6 +66,41 @@ the browser starts its own server + browser and tears both down in a
 running anything that starts the app server — it fails fast with a clear
 error otherwise, rather than silently building.
 
+## Running a round
+
+`round-runner.ts`'s `runTestRound()` runs every scenario `ScenarioRegistry
+.listEnabled()` returns, once each, with the agent each one declares
+(`scenario.agent` — resolved via `AgentRegistry.getBySlug`, never chosen
+dynamically; a scenario with no matching/enabled agent is recorded in
+`skipped`, never silently dropped). Each run goes through the exact same
+`runTestScenario()` above — nothing about single-scenario execution is
+duplicated. All runs in a round share one fixed, persistent "AI Product Lab
+(self-test)" project (created once, lazily, like
+`services/organizations.ts`'s default organization) rather than a
+throwaway project per round, since the LAB is what's being tested now, not
+an external product.
+
+`round-report.ts`'s `formatRoundReport()` turns that result into one
+consolidated, plain-text report: findings grouped by `classification`
+(BUG/UX/UI/NAVIGATION/DATA/PERFORMANCE/ACCESSIBILITY/OPPORTUNITY/
+FUTURE_RISK), each with scenario/agent/type/impact/evidence/
+recommendation/confidence; every run's status; and a closing "DIRETRIZES
+PARA PRÓXIMA ITERAÇÃO" section that lists each recommendation once, sorted
+by impact. It only reorganizes what the agents already produced during the
+round (via the real Agent Runtime) — no new analysis happens in this step,
+and nothing here changes any state.
+
+`scripts/run-test-round.ts` (`npm run test-lab:round`) is the entry point:
+it calls `runTestRound()` and prints the report. This is a script invoked
+on request — not a UI button, not a cron/background job — and it spends
+real Anthropic API tokens each time (unlike the test suite, which always
+injects a fake `ModelProvider`). This is what "faça uma rodada de testes no
+LAB" means today: running this script and reading its output back.
+
 **Not this module's job:** choosing which scenario/agent to run
-automatically (`core/orchestrator`, not built), or comparing two `TestRun`s
-against each other over time (`core/lap`'s Retest Engine, Phase 8).
+automatically based on some evaluated criteria (`core/orchestrator`'s Smart
+Router, not built), consolidating findings across *multiple* rounds
+(`core/findings`, Phase 7), or comparing two `TestRun`s against each other
+over time (`core/lap`'s Retest Engine, Phase 8). And, always: agents never
+modify the app themselves — a round only ever produces evidence and
+recommendations for a human to act on.

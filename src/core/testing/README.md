@@ -10,13 +10,30 @@ The LAB is the product being built. Agents are the team that tests, operates,
 and analyzes the LAB — they don't exist to build it. This module is where
 that testing actually happens.
 
+## The cycle this module exists to support
+
+AGENTE USA O LAB → OBSERVA → ENCONTRA PROBLEMA OU OPORTUNIDADE → REGISTRA
+EVIDÊNCIA → FAZ RECOMENDAÇÃO → **você valida** → (separately) alguém
+implementa → AGENTE TESTA NOVAMENTE.
+
+This module owns everything up to "você valida" — an agent operating the
+LAB, observing, and producing evidenced findings/recommendations for a
+human to review. It stops there on purpose: agents never modify the app,
+there's no button that triggers a run, and nothing runs on a schedule or in
+the background. A round only happens when explicitly asked for (today: `npm
+run test-lab:round`, read by a human or relayed by Claude Code) — see
+`runner/README.md`'s "Running a round" section.
+
 ## Structure
 
 - `scenarios/` — what a test is: a versioned `TestScenario` definition file
-  per scenario, validated by `test-protocol.ts`, read by `registry.ts`.
+  per scenario (including which agent it's written for), validated by
+  `test-protocol.ts`, read by `registry.ts`.
 - `runner/` — how a test runs: `test-runner.ts`'s `runTestScenario()` opens a
-  `TestRun`, gathers real observations for the scenario, hands them to the
+  `TestRun`, gathers real observations for one scenario, hands them to the
   agent for analysis, and closes the run with a status and any findings.
+  `round-runner.ts`'s `runTestRound()` runs every enabled scenario once, and
+  `round-report.ts` formats the results into one consolidated report.
 
 No `findings/` subfolder here, unlike the structure originally proposed —
 see "Why no `findings/` module" below.
@@ -65,6 +82,5 @@ Engine that compares two `TestRun`s over time (`core/lap`, Phase 8 — a
 `TestRun` is the primitive it will eventually compare, not something it
 replaces).
 
-_(First scenario only: "Novo usuário cria seu primeiro projeto", using the
-existing `new-user` agent. Built to validate the pipeline, not as a full
-test suite.)_
+_(Two scenarios, both using the existing `new-user` agent. Built to validate
+the pipeline, not as a full test suite.)_

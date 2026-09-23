@@ -29,6 +29,7 @@ const noFindingOutput: AgentOutput = {
   impact: null,
   recommendation: null,
   confidence: "HIGH",
+  classification: null,
   needsOtherAgent: null,
 };
 
@@ -40,6 +41,7 @@ const findingOutput: AgentOutput = {
   impact: "HIGH",
   recommendation: "Investigate the create-project service.",
   confidence: "HIGH",
+  classification: "BUG",
   needsOtherAgent: null,
 };
 
@@ -51,6 +53,7 @@ const unconfirmedOutput: AgentOutput = {
   impact: null,
   recommendation: null,
   confidence: "LOW",
+  classification: null,
   needsOtherAgent: null,
 };
 
@@ -179,4 +182,28 @@ describe("runTestScenario", () => {
     expect(testRun.status).toBe("BLOCKED");
     expect(testRun.executionId).toBeNull();
   });
+
+  it(
+    "runs the discoverability scenario end to end through the real browser and records discovery-specific observations",
+    async () => {
+      const discoveryScenario = ScenarioRegistry.getById("new-user-discovers-and-creates-first-project");
+      if (!discoveryScenario) throw new Error("new-user-discovers-and-creates-first-project must exist");
+
+      setModelProviderForTesting(fakeProviderReturning(noFindingOutput));
+
+      const result = await runTestScenario({ scenario: discoveryScenario, agent, project });
+      testRunIds.push(result.testRunId);
+
+      expect(result.status).toBe("PASSED");
+
+      const testRun = await db.testRun.findUniqueOrThrow({ where: { id: result.testRunId } });
+      expect(testRun.scenarioId).toBe("new-user-discovers-and-creates-first-project");
+      const observations = testRun.observations as { action: string; observed: string }[];
+      expect(observations.length).toBeGreaterThan(0);
+      // The discovery-specific observation: a successful click is what
+      // stands in for "the Projects link was actually visible/findable".
+      expect(observations.some((o) => o.action.toLowerCase().includes("discover"))).toBe(true);
+    },
+    60_000,
+  );
 });

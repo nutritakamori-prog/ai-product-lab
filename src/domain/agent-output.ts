@@ -22,6 +22,25 @@ export const AGENT_OUTPUT_STATUSES = ["FINDING", "NO_FINDING", "UNCONFIRMED"] as
 export const IMPACT_LEVELS = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 export const CONFIDENCE_LEVELS = ["LOW", "MEDIUM", "HIGH"] as const;
 
+// "classification" added for the Test Lab's consolidated round report
+// (src/core/testing/runner/round-report.ts): what KIND of problem/opportunity
+// this is. Deliberately separate from the "FREQUENCY" concept the original
+// design deferred to Phase 7 (docs/AGENT_ARCHITECTURE.md) — frequency needs
+// comparing multiple executions against each other, which a single run has
+// no way to know; classification doesn't, a single run can self-assess it.
+export const FINDING_CLASSIFICATIONS = [
+  "BUG",
+  "UX",
+  "UI",
+  "NAVIGATION",
+  "DATA",
+  "PERFORMANCE",
+  "ACCESSIBILITY",
+  "OPPORTUNITY",
+  "FUTURE_RISK",
+] as const;
+export type FindingClassification = (typeof FINDING_CLASSIFICATIONS)[number];
+
 export const agentOutputBaseSchema = z.object({
   agent: z.string().min(1).describe("The agent's own slug, self-reported for cross-checking."),
   status: z.enum(AGENT_OUTPUT_STATUSES),
@@ -40,6 +59,12 @@ export const agentOutputBaseSchema = z.object({
   impact: z.enum(IMPACT_LEVELS).nullable(),
   recommendation: z.string().min(1).nullable(),
   confidence: z.enum(CONFIDENCE_LEVELS),
+  classification: z
+    .enum(FINDING_CLASSIFICATIONS)
+    .nullable()
+    .describe(
+      'What kind of problem or opportunity this is (BUG, UX, UI, NAVIGATION, DATA, PERFORMANCE, ACCESSIBILITY, OPPORTUNITY, FUTURE_RISK). Required when status is "FINDING", otherwise null.',
+    ),
   needsOtherAgent: z
     .string()
     .nullable()
@@ -49,10 +74,10 @@ export const agentOutputBaseSchema = z.object({
 export const agentOutputSchema = agentOutputBaseSchema.refine(
   (value) =>
     value.status !== "FINDING" ||
-    (value.finding && value.evidence && value.impact && value.recommendation),
+    (value.finding && value.evidence && value.impact && value.recommendation && value.classification),
   {
     message:
-      'status "FINDING" requires finding, evidence, impact, and recommendation to all be non-null',
+      'status "FINDING" requires finding, evidence, impact, recommendation, and classification to all be non-null',
   },
 );
 

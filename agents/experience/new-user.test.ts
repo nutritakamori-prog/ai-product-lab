@@ -14,6 +14,7 @@ const FAKE_OUTPUT = {
   impact: "MEDIUM" as const,
   recommendation: "Add a single primary action to the first screen.",
   confidence: "MEDIUM" as const,
+  classification: "UX" as const,
   needsOtherAgent: null,
 };
 

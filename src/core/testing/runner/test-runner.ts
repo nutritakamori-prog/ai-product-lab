@@ -142,6 +142,120 @@ const STEP_EXECUTORS: Record<string, () => Promise<StepExecutionResult>> = {
 
     return { observations };
   },
+
+  "new-user-discovers-and-creates-first-project": async () => {
+    const observations: Observation[] = [];
+    const name = `Test scenario project ${Date.now()}`;
+    let server: Awaited<ReturnType<typeof startAppServer>> | null = null;
+    let adapter: PlaywrightBrowserAdapter | null = null;
+
+    try {
+      server = await startAppServer();
+      adapter = await launchBrowserAdapter(server.baseUrl);
+
+      const home = await adapter.navigate("/");
+      const homeText = await adapter.getText("body");
+      observations.push({
+        action: "Open the application and read the initial screen, as a first-time user would see it.",
+        expected: "The home screen renders and shows real content.",
+        observed: `Loaded ${home.url}. Home screen text sample: "${homeText.slice(0, 200)}"`,
+        evidence: `getText("body") on the home screen returned ${homeText.length} real characters.`,
+      });
+
+      // Discoverability check: a plain click on the "Projects" link (the
+      // only route to it a new user could plausibly find, since nothing
+      // else advertises it). Playwright only succeeds a click when the
+      // element is actually visible, enabled, and stable — a successful
+      // click IS real evidence it was discoverable, not just clickable in
+      // principle. This is deliberately not a UI change to make discovery
+      // "easier" — it's the same real nav link scenario 1 uses.
+      let projectsLinkFound = true;
+      let clickError: string | null = null;
+      try {
+        await adapter.click('a[href="/projects"]');
+      } catch (err) {
+        projectsLinkFound = false;
+        clickError = err instanceof Error ? err.message : String(err);
+      }
+      observations.push({
+        action: 'From the initial screen, attempt to discover and click a "Projects" link.',
+        expected: "A visible, clickable link to Projects exists on the initial screen.",
+        observed: projectsLinkFound
+          ? "A link to /projects was visible and clickable from the initial screen."
+          : `No clickable link to /projects could be found from the initial screen: ${clickError}`,
+        evidence: projectsLinkFound
+          ? 'click(\'a[href="/projects"]\') resolved without error (Playwright only succeeds this when the element is actually visible, enabled, and stable).'
+          : `click('a[href="/projects"]') threw: ${clickError}`,
+      });
+
+      if (!projectsLinkFound) {
+        observations.push({
+          action: "Locate the create-project action, create the project, and confirm the result.",
+          expected: "These steps follow after reaching the Projects page.",
+          observed: "Not attempted — the Projects page was never reached.",
+          evidence: "No further browser actions were taken after the failed discovery step.",
+        });
+        return { observations };
+      }
+
+      const nav = await pollUntil(() => adapter!.getText("body"), (text) => text.includes("New project"));
+      observations.push({
+        action: "Confirm the Projects page actually loaded after the click.",
+        expected: 'The page shows a "New project" form.',
+        observed: nav.found
+          ? 'The page now contains "New project" — the Projects page loaded.'
+          : `After clicking, the page did not contain "New project" within the wait window (3s). Page text sample: "${nav.lastText.slice(0, 200)}"`,
+        evidence: `getText("body") after the click ${nav.found ? "contains" : "does not contain"} "New project".`,
+      });
+
+      const formText = await adapter.getText("form");
+      const formHasCreateAction = formText.includes("Create project");
+      observations.push({
+        action: "Locate the create-project action on the Projects page.",
+        expected: 'A form with a "Create project" action is visible, without further navigation.',
+        observed: formHasCreateAction
+          ? 'A form containing "Create project" was found in the DOM, on the same page reached from the initial screen.'
+          : `No "Create project" text found in the form. Form text: "${formText.slice(0, 200)}"`,
+        evidence: `getText("form") = "${formText.slice(0, 200)}"`,
+      });
+
+      if (!formHasCreateAction) {
+        observations.push({
+          action: "Create the project and confirm the result.",
+          expected: "These steps follow after locating the create-project action.",
+          observed: "Not attempted — the create-project action was never located.",
+          evidence: "No further browser actions were taken after the failed discovery step.",
+        });
+        return { observations };
+      }
+
+      await adapter.fill("#name", name);
+      await adapter.click('button[type="submit"]');
+      const submit = await pollUntil(() => adapter!.getText("body"), (text) => text.includes(name));
+      observations.push({
+        action: "Create the project using only what was discovered on the page, then confirm the result.",
+        expected: "The new project appears, confirming the unassisted flow succeeded.",
+        observed: submit.found
+          ? `The project name "${name}" is present on the page after submitting.`
+          : `The project name "${name}" was NOT found on the page after submitting (waited ~3s). Page text sample: "${submit.lastText.slice(0, 300)}"`,
+        evidence: `getText("body") after submit ${submit.found ? "contains" : "does not contain"} "${name}".`,
+      });
+    } catch (err) {
+      observations.push({
+        action: "Drive the real browser through the unassisted discovery-and-creation flow.",
+        expected: "Every step above completes and produces real DOM evidence.",
+        observed: `Browser automation failed before completing: ${err instanceof Error ? err.message : String(err)}`,
+        evidence:
+          "An exception was thrown by the browser/server automation itself — this is an infrastructure failure, not evidence about the application's own behavior.",
+      });
+    } finally {
+      if (adapter) await adapter.close().catch(() => {});
+      if (server) await server.close().catch(() => {});
+      await cleanupTestProject(name);
+    }
+
+    return { observations };
+  },
 };
 
 function buildScenarioTask(scenario: TestScenario, observations: Observation[]): string {

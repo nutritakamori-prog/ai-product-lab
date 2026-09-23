@@ -5,6 +5,65 @@ Newest first.
 
 ---
 
+## 2026-09-23 — Test Lab: the LAB tests itself, round-runner + consolidated report
+
+**Problem:** clarified project philosophy — the LAB is the product;
+agents are specialized *users* who operate it, find problems/opportunities,
+and produce evidence + recommendations. They never modify the app
+themselves. The missing piece: a way to ask for "uma rodada de testes no
+LAB" and get back one consolidated report to validate, without an
+intelligent router or background automation.
+
+**Decision:**
+- Added `agent: string` to `TestScenario` (`test-protocol.ts`) — the slug
+  of the agent a scenario is written for, declared statically by the
+  scenario's author (both existing scenarios now declare `agent:
+  "new-user"`). This is what lets a round pick the right agent per scenario
+  without a human specifying it each time, and explicitly **is not** a
+  Smart Router: nothing is decided at runtime, it's just naming a fact the
+  scenario file already implied.
+- Added `classification` to the shared `agentOutputBaseSchema`
+  (`src/domain/agent-output.ts`): `BUG | UX | UI | NAVIGATION | DATA |
+  PERFORMANCE | ACCESSIBILITY | OPPORTUNITY | FUTURE_RISK`, required
+  (via `agentOutputSchema`'s refine) when `status` is `"FINDING"`. This
+  revises the earlier "deferred to Phase 7" note in
+  `docs/AGENT_ARCHITECTURE.md`: that note lumped `classification` together
+  with `FREQUENCY` as both needing cross-execution comparison, but only
+  `FREQUENCY` actually does — a single run can self-assess *what kind* of
+  problem it found. Purely additive to existing FINDING data going
+  forward, but it does make `classification` a new required field on any
+  *new* FINDING-status output, so every existing FINDING fixture across the
+  test suite was updated (`output-validator.test.ts`, `run-agent.test.ts`,
+  `new-user.test.ts`, `test-runner.test.ts`).
+- Added `round-runner.ts` (`runTestRound()`): runs every scenario
+  `ScenarioRegistry.listEnabled()` returns, once each, resolving each
+  one's agent via `scenario.agent` and calling the existing
+  `runTestScenario()` — no duplicated execution logic. All runs in a round
+  share one fixed, persistent "AI Product Lab (self-test)" `Project` row
+  (lazily created once, same shape as `getDefaultOrganization()`), since
+  the LAB is now what's being tested, not an external product a `Project`
+  row would normally represent. A scenario whose declared agent doesn't
+  exist or is disabled is recorded in `skipped` with a reason — never
+  silently dropped.
+- Added `round-report.ts` (`formatRoundReport()`): pure text formatting
+  over a round's results — findings grouped by `classification`, each
+  showing scenario/agent/type/impact/evidence/recommendation/confidence,
+  followed by a "DIRETRIZES PARA PRÓXIMA ITERAÇÃO" section listing every
+  recommendation once, sorted by impact. No new analysis happens here —
+  everything printed was already produced by an agent's real run through
+  the Agent Runtime; this step only reorganizes it for a human to read.
+- Added `scripts/run-test-round.ts` (`npm run test-lab:round`, via the new
+  `tsx` devDependency) as the one entry point: it calls `runTestRound()`
+  and prints the report, then exits. Deliberately a script run on request
+  — no "Run Test" button, no cron/background job, no autonomy for agents to
+  change anything. It spends real Anthropic API tokens (real `runAgent()`
+  calls, not a test double), unlike the automated test suite.
+- Explicitly not built (per the approved scope): Smart Router, Master
+  Orchestrator, new agents, new scenarios, a UI trigger, or any code-write
+  capability for agents.
+
+---
+
 ## 2026-09-23 — Test Lab: a real Playwright BrowserAdapter, not simulated navigation
 
 **Problem:** the Test Lab foundation (previous entry) explicitly recorded

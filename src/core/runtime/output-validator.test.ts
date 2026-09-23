@@ -9,6 +9,7 @@ const baseNoFinding = {
   impact: null,
   recommendation: null,
   confidence: "MEDIUM" as const,
+  classification: null,
   needsOtherAgent: null,
 };
 
@@ -20,6 +21,7 @@ const baseFinding = {
   impact: "MEDIUM" as const,
   recommendation: "Add a step indicator to the onboarding flow.",
   confidence: "HIGH" as const,
+  classification: "UX" as const,
   needsOtherAgent: null,
 };
 
@@ -52,6 +54,11 @@ describe("validateAgentOutput", () => {
 
   it("rejects a FINDING result missing recommendation", () => {
     const result = validateAgentOutput({ ...baseFinding, recommendation: null });
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects a FINDING result missing classification", () => {
+    const result = validateAgentOutput({ ...baseFinding, classification: null });
     expect(result.valid).toBe(false);
   });
 

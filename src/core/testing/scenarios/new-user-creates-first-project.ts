@@ -25,6 +25,7 @@ const newUserCreatesFirstProject: TestScenario = {
     "The project is created without error and appears in the project list with the name that was entered.",
   priority: "HIGH",
   category: "onboarding",
+  agent: "new-user",
   enabled: true,
 };
 

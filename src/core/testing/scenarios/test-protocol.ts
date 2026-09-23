@@ -39,6 +39,15 @@ export const testScenarioSchema = z.object({
   expectedOutcome: z.string().trim().min(1),
   priority: z.enum(SCENARIO_PRIORITIES),
   category: z.enum(SCENARIO_CATEGORIES),
+  // The agent slug this scenario is written for — a static, author-declared
+  // association (like an AgentDefinition's own `category`), not a runtime
+  // decision. This is what lets a round run every enabled scenario without
+  // a human picking the agent each time, without needing a Smart Router.
+  agent: z
+    .string()
+    .trim()
+    .min(1)
+    .regex(/^[a-z0-9-]+$/, "agent must be a lowercase kebab-case agent slug, e.g. 'new-user'"),
   enabled: z.boolean(),
 });
 

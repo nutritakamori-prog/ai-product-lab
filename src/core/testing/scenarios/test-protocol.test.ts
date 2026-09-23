@@ -11,6 +11,7 @@ const validScenario = {
   expectedOutcome: "The thing happened.",
   priority: "MEDIUM",
   category: "functional",
+  agent: "new-user",
   enabled: true,
 };
 
@@ -42,6 +43,18 @@ describe("testScenarioSchema", () => {
 
   it("rejects an unknown priority", () => {
     const result = testScenarioSchema.safeParse({ ...validScenario, priority: "URGENT" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a missing agent", () => {
+    const withoutAgent: Record<string, unknown> = { ...validScenario };
+    delete withoutAgent.agent;
+    const result = testScenarioSchema.safeParse(withoutAgent);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an agent slug that isn't kebab-case", () => {
+    const result = testScenarioSchema.safeParse({ ...validScenario, agent: "New User" });
     expect(result.success).toBe(false);
   });
 });

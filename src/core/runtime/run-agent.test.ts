@@ -18,6 +18,7 @@ const VALID_OUTPUT = {
   impact: "MEDIUM" as const,
   recommendation: "Show a toast on save.",
   confidence: "HIGH" as const,
+  classification: "UX" as const,
   needsOtherAgent: null,
 };
 

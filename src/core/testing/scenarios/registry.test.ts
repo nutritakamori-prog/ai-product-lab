@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { ScenarioRegistry } from "./registry";
 
 describe("ScenarioRegistry", () => {
-  it("discovers the one real scenario", () => {
+  it("discovers both real scenarios", () => {
     expect(ScenarioRegistry.discoverIds()).toContain("new-user-creates-first-project");
+    expect(ScenarioRegistry.discoverIds()).toContain("new-user-discovers-and-creates-first-project");
   });
 
   it("loads a known scenario by id", () => {
@@ -11,6 +12,15 @@ describe("ScenarioRegistry", () => {
     expect(scenario).not.toBeNull();
     expect(scenario?.name).toBe("Novo usuário cria seu primeiro projeto");
     expect(scenario?.enabled).toBe(true);
+    expect(scenario?.steps.length).toBeGreaterThan(0);
+  });
+
+  it("loads the discoverability scenario by id", () => {
+    const scenario = ScenarioRegistry.getById("new-user-discovers-and-creates-first-project");
+    expect(scenario).not.toBeNull();
+    expect(scenario?.name).toBe("Novo usuário encontra e cria seu primeiro projeto sem ajuda");
+    expect(scenario?.enabled).toBe(true);
+    expect(scenario?.category).toBe("onboarding");
     expect(scenario?.steps.length).toBeGreaterThan(0);
   });
 

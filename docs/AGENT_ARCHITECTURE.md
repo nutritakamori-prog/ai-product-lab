@@ -45,6 +45,7 @@ evidence          — ACTION/EXPECTED/OBSERVED evidence; required when status is
 impact            — CRITICAL | HIGH | MEDIUM | LOW; required when status is FINDING
 recommendation    — required when status is FINDING
 confidence        — LOW | MEDIUM | HIGH
+classification    — BUG | UX | UI | NAVIGATION | DATA | PERFORMANCE | ACCESSIBILITY | OPPORTUNITY | FUTURE_RISK; required when status is FINDING
 needsOtherAgent   — slug of another agent to also weigh in, or null
 ```
 
@@ -58,15 +59,20 @@ Guaranteed two ways: the Anthropic call uses Structured Outputs
 (`messages.parse` + a JSON Schema generated from the Zod object), so the
 *shape* always matches; the Output Validator then checks the one business
 rule Structured Outputs can't express — `status: "FINDING"` requires the
-other four fields to be non-null. Never chain-of-thought — only the fields
+other five fields to be non-null. Never chain-of-thought — only the fields
 above are ever stored.
 
-**Deferred to Phase 7 (Findings):** `FREQUENCY` (isolated/recurrent/
-generalized) and a finding-type `CLASSIFICATION` (bug/UX/UI/...). Both are
-properties of comparing *multiple* executions against each other — a
-single agent run has no way to know if a problem is recurrent, so they
-belong to the Finding record the Findings module creates by consolidating
-executions, not to this per-execution contract.
+**`classification` vs. `FREQUENCY` (still deferred to Phase 7 Findings):**
+these were originally grouped together as "both need cross-execution
+comparison," but that's only true of `FREQUENCY` (isolated/recurrent/
+generalized) — a single agent run has no way to know if a problem recurs
+*across* runs. `classification` (what *kind* of problem this one run found)
+doesn't have that dependency — a single run can self-assess it — so it was
+added here once the Test Lab's consolidated round report
+(`src/core/testing/runner/round-report.ts`) needed to group findings by
+type. `FREQUENCY` still belongs to the Finding record Phase 7's Findings
+module creates by consolidating executions, not to this per-execution
+contract.
 
 ## Evidence-first
 
