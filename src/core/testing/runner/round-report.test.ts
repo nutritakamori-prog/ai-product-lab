@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ResolvedAgent } from "@/core/agents/registry";
 import type { AgentOutput } from "@/domain/agent-output";
 import type { TestScenario } from "../scenarios/test-protocol";
+import type { RegressionCheck } from "./regression";
 import { formatRoundReport } from "./round-report";
 import type { RoundEntry, TestRoundResult } from "./round-runner";
 
@@ -63,15 +64,21 @@ function makeResult(overrides: Partial<TestRoundResult> = {}): TestRoundResult {
   };
 }
 
+function makeEntry(overrides: Partial<RoundEntry> = {}): RoundEntry {
+  return {
+    testRunId: "run-1",
+    scenario: makeScenario(),
+    agent: makeAgent(),
+    status: "PASSED",
+    finding: null,
+    infrastructureError: null,
+    ...overrides,
+  };
+}
+
 describe("formatRoundReport", () => {
   it("groups a finding under its classification type, with the exact requested fields", () => {
-    const entry: RoundEntry = {
-      testRunId: "run-1",
-      scenario: makeScenario(),
-      agent: makeAgent(),
-      status: "FAILED",
-      finding: bugFinding,
-    };
+    const entry = makeEntry({ status: "FAILED", finding: bugFinding });
 
     const report = formatRoundReport(makeResult({ entries: [entry] }));
 
@@ -91,13 +98,7 @@ describe("formatRoundReport", () => {
   });
 
   it("lists a recommendation in DIRETRIZES PARA PRÓXIMA ITERAÇÃO without executing anything", () => {
-    const entry: RoundEntry = {
-      testRunId: "run-1",
-      scenario: makeScenario(),
-      agent: makeAgent(),
-      status: "FAILED",
-      finding: bugFinding,
-    };
+    const entry = makeEntry({ status: "FAILED", finding: bugFinding });
 
     const report = formatRoundReport(makeResult({ entries: [entry] }));
     const guidelinesSection = report.split("--- DIRETRIZES PARA PRÓXIMA ITERAÇÃO ---")[1];
@@ -108,13 +109,7 @@ describe("formatRoundReport", () => {
   });
 
   it("says explicitly when there is nothing to recommend", () => {
-    const entry: RoundEntry = {
-      testRunId: "run-1",
-      scenario: makeScenario(),
-      agent: makeAgent(),
-      status: "PASSED",
-      finding: null,
-    };
+    const entry = makeEntry({ status: "PASSED", finding: null });
 
     const report = formatRoundReport(makeResult({ entries: [entry] }));
 
@@ -130,5 +125,65 @@ describe("formatRoundReport", () => {
 
     expect(report).toContain("SKIPPED");
     expect(report).toContain('No agent named "ghost" exists.');
+  });
+
+  it("labels an infrastructure error as NEEDS_REVIEW/infrastructure, never as a product finding", () => {
+    const entry = makeEntry({
+      status: "NEEDS_REVIEW",
+      finding: null,
+      infrastructureError: "ANTHROPIC_API_KEY is not set.",
+    });
+
+    const report = formatRoundReport(makeResult({ entries: [entry] }));
+
+    expect(report).toContain("NEEDS_REVIEW");
+    expect(report).toContain("INFRASTRUCTURE ERROR, not a product finding: ANTHROPIC_API_KEY is not set.");
+    // Never grouped under a finding-type section — there is no finding.
+    for (const type of ["BUG", "UX", "UI", "NAVIGATION", "DATA", "PERFORMANCE", "ACCESSIBILITY", "OPPORTUNITY", "FUTURE_RISK"]) {
+      expect(report).toContain(`[${type}] (0)`);
+    }
+    // And it must not be counted as something to recommend acting on.
+    expect(report).toContain("Nenhuma recomendação nesta rodada");
+  });
+
+  it("says explicitly when there are no regressions", () => {
+    const report = formatRoundReport(makeResult({ entries: [makeEntry()] }));
+
+    expect(report).toContain("--- REGRESSIONS ---");
+    expect(report).toContain("Nenhuma regressão detectada nesta rodada.");
+  });
+
+  it("reports a REGRESSION with scenario, previous, and current status", () => {
+    const entry = makeEntry({ status: "FAILED" });
+    const regression: RegressionCheck = {
+      scenarioId: entry.scenario.id,
+      isRegression: true,
+      previousRunId: "previous-run-1",
+      previousStatus: "PASSED",
+      currentStatus: "FAILED",
+    };
+
+    const report = formatRoundReport(makeResult({ entries: [entry] }), [regression]);
+
+    expect(report).toContain("REGRESSION");
+    expect(report).toContain(`scenario: ${entry.scenario.id}`);
+    expect(report).toContain("previous: PASSED");
+    expect(report).toContain("current: FAILED");
+  });
+
+  it("does not report a non-regression check (e.g. no baseline) as a REGRESSION", () => {
+    const entry = makeEntry();
+    const noBaseline: RegressionCheck = {
+      scenarioId: entry.scenario.id,
+      isRegression: false,
+      previousRunId: null,
+      previousStatus: null,
+      currentStatus: "PASSED",
+    };
+
+    const report = formatRoundReport(makeResult({ entries: [entry] }), [noBaseline]);
+
+    expect(report).not.toContain("REGRESSION\n");
+    expect(report).toContain("Nenhuma regressão detectada nesta rodada.");
   });
 });

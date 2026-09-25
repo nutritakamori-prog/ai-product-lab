@@ -20,6 +20,7 @@ const FAKE_OUTPUT = {
 
 function fakeProvider(): ModelProvider {
   return {
+    name: "fake-test-provider",
     completeStructured: async <T>() => ({
       data: FAKE_OUTPUT as T,
       rawText: JSON.stringify(FAKE_OUTPUT),

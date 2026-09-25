@@ -3,6 +3,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 import type { ModelTier } from "@/generated/prisma/client";
 import { getEnv } from "@/lib/env";
+import { MockModelProvider } from "./mock-provider";
 
 /**
  * Maps our three abstract tiers (see docs/DECISIONS.md) to concrete Anthropic
@@ -50,14 +51,22 @@ export interface StructuredCompletionResult<T> {
  * Abstraction over "call an LLM and get structured output back". The Runtime
  * only ever talks to this interface — never to the Anthropic SDK directly —
  * so a future second provider (or a test fake) is a drop-in.
+ *
+ * `name` is a short, stable self-identifier ("anthropic", "mock", ...) —
+ * runAgent() records it on the AgentExecution row so a mock-backed run is
+ * never mistaken for a real one. A test double should set its own
+ * descriptive name (e.g. "fake-test-provider"), not borrow "anthropic" or
+ * "mock".
  */
 export interface ModelProvider {
+  readonly name: string;
   completeStructured<T>(
     params: StructuredCompletionParams<T>,
   ): Promise<StructuredCompletionResult<T>>;
 }
 
 class AnthropicModelProvider implements ModelProvider {
+  readonly name = "anthropic";
   private client: Anthropic;
 
   constructor() {
@@ -97,8 +106,17 @@ class AnthropicModelProvider implements ModelProvider {
 
 let cachedProvider: ModelProvider | null = null;
 
+/**
+ * Anthropic when ANTHROPIC_API_KEY is configured; otherwise the deterministic
+ * MockModelProvider (src/core/models/mock-provider.ts) automatically — so
+ * development on the Test Lab (and anything else calling runAgent()) keeps
+ * working without spending real API tokens or needing a manual flag. See
+ * docs/DECISIONS.md.
+ */
 export function getModelProvider(): ModelProvider {
-  if (!cachedProvider) cachedProvider = new AnthropicModelProvider();
+  if (!cachedProvider) {
+    cachedProvider = getEnv().ANTHROPIC_API_KEY ? new AnthropicModelProvider() : new MockModelProvider();
+  }
   return cachedProvider;
 }
 

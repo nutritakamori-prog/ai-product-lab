@@ -145,6 +145,16 @@ enum AgentExecutionStatus {
   FAILED
 }
 
+// Which ModelProvider actually answered — see src/core/models/provider.ts.
+// ANTHROPIC is the real provider; MOCK is the deterministic, offline
+// stand-in used automatically when ANTHROPIC_API_KEY isn't configured
+// (src/core/models/mock-provider.ts). Recorded explicitly so a MOCK-backed
+// execution is never mistaken for a real one. See docs/DECISIONS.md.
+enum ModelProviderKind {
+  ANTHROPIC
+  MOCK
+}
+
 model AgentExecution {
   id            String               @id @default(cuid())
   projectId     String
@@ -152,6 +162,7 @@ model AgentExecution {
   task          String
   status        AgentExecutionStatus @default(RUNNING)
   model         String? // the concrete model id actually used, e.g. "claude-sonnet-5"
+  provider      ModelProviderKind    @default(ANTHROPIC)
   input         Json // assembled system/user prompt + raw context, for auditability
   output        Json? // the validated structured output, once SUCCESS
   error         String?
@@ -200,6 +211,7 @@ model TestRun {
   observations    Json? // ACTION/EXPECTED/OBSERVED/EVIDENCE entries gathered while attempting the scenario
   observedOutcome String? // what actually happened, to compare against the scenario's expectedOutcome
   findings        Json? // AgentOutput-shaped findings (src/domain/agent-output.ts) the agent produced from the observations
+  tracePath       String? // path to this run's Playwright trace .zip (test-results/traces/), when one was captured — complementary structural evidence, never a substitute for `observations`/`findings`
   startedAt       DateTime?
   finishedAt      DateTime?
   durationMs      Int?

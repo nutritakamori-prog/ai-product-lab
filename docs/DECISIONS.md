@@ -5,6 +5,87 @@ Newest first.
 
 ---
 
+## 2026-09-23 — MockModelProvider: development continues without a paid Anthropic key
+
+**Problem:** the real round (previous entry) surfaced that `ANTHROPIC_API_KEY`
+isn't configured in this environment, and development needs to continue
+without spending real API tokens on every round — while still exercising
+the real browser automation and the real Test Lab pipeline end to end.
+
+**Decision:**
+- Added `src/core/models/mock-provider.ts`'s `MockModelProvider` — a second
+  `ModelProvider` implementation, deterministic and offline. It reads only
+  the `OBSERVED:` text already in the prompt it's given (real evidence
+  some earlier real step already gathered — the browser automation is
+  never mocked) and applies simple keyword rules: a clear negative result →
+  `FINDING`; a not-automated/inconclusive step or no structured evidence at
+  all → `UNCONFIRMED`; otherwise → `NO_FINDING`. Findings are capped at
+  `MEDIUM` impact/confidence and say so in their own `recommendation` —
+  explicitly a low-confidence lead, not a substitute for real analysis.
+- `provider.ts`'s `getModelProvider()` now picks automatically:
+  `AnthropicModelProvider` when `ANTHROPIC_API_KEY` is set, `MockModelProvider`
+  otherwise — no flag, no manual switch. This also means a missing key can
+  no longer surface as an uncaught exception the way it did in the
+  previous entry: `getModelProvider()` itself never throws for that reason
+  anymore, since it always has a provider to return.
+- `ModelProvider` gained a required `name` field (`"anthropic"`, `"mock"`,
+  or a test double's own descriptive name) — purely additive to the
+  interface, but every existing fake `ModelProvider` across the test suite
+  needed one added.
+- `AgentExecution` gained `provider: ModelProviderKind` (`ANTHROPIC` |
+  `MOCK`, migration `mock_model_provider`), resolved and recorded at the
+  start of `runAgent()` (before creating the row, not patched in after) so
+  a Mock-backed execution is never mistaken for a real one. A test
+  double's name maps to `MOCK` — the honest classification for "not the
+  real Anthropic provider," since the enum has no third value.
+- `getEnv()` gained `resetEnvCacheForTesting()` (same reasoning as
+  `setModelProviderForTesting`) so tests can exercise the real
+  Anthropic-vs-Mock selection by actually toggling `ANTHROPIC_API_KEY`,
+  rather than only testing around it.
+- Did not touch the Anthropic provider itself, the agent library, the
+  Test Runner, or the BrowserAdapter — this is purely a second
+  `ModelProvider` implementation plus the selection logic that picks
+  between the two.
+
+---
+
+## 2026-09-23 — Test Lab round: infrastructure failures no longer leave a stuck TestRun or abort the round
+
+**Problem:** the first real round (real Anthropic API call, `npm run
+test-lab:round`) failed with no `ANTHROPIC_API_KEY` configured. `runAgent()`
+throws synchronously in that case (before returning any result) — and
+neither `runTestScenario()` nor `runTestRound()` had a try/catch around
+that call. Effect: the `TestRun` stayed stuck at `RUNNING` forever (its
+closing `db.testRun.update` never ran), and the whole round aborted after
+the first scenario — the second scenario never even started.
+
+**Decision:**
+- `runTestScenario()` now wraps everything from the step executor through
+  `runAgent()` in a try/catch. Any exception closes the TestRun as
+  `NEEDS_REVIEW` with `finishedAt` set and an `observedOutcome` explicitly
+  labeled as an infrastructure error — never reinterpreted as something the
+  agent found. `RunTestScenarioResult` gained `infrastructureError: string
+  | null` so callers can tell this case apart from a real `NEEDS_REVIEW`
+  (an `UNCONFIRMED` finding, or a `runAgent` result that came back with
+  `status: "FAILED"` after exhausting retries).
+- `runTestRound()`'s loop now wraps each scenario's iteration in try/catch
+  too (defense in depth, for a failure even before a TestRun could be
+  created, e.g. resolving the agent) — on catch, it records the scenario in
+  `skipped` with the real error message and continues to the next one,
+  instead of the exception propagating out of the whole round.
+- `round-report.ts` labels an `infrastructureError` entry distinctly
+  ("INFRASTRUCTURE ERROR, not a product finding") in the report; it was
+  already impossible for such an entry to appear under "FINDINGS BY TYPE"
+  or the DIRETRIZES section, since `finding` stays `null` for it.
+- Deliberately not built: automatic retry of a failed scenario (explicitly
+  out of scope for this fix) — a failure is recorded and the round moves
+  on, nothing more.
+- Did not touch `run-agent.ts` (Agent Runtime) or `browser-adapter.ts` —
+  the fix is entirely in how the Test Lab layer calls them, not in what
+  they do.
+
+---
+
 ## 2026-09-23 — Test Lab: the LAB tests itself, round-runner + consolidated report
 
 **Problem:** clarified project philosophy — the LAB is the product;
@@ -433,3 +514,34 @@ explicitly forbidden by its own `AGENTS.md`. A second existing repo
 
 **Decision:** create a fresh repository, `nutritakamori-prog/ai-product-lab`,
 rather than repurposing either existing repo.
+
+---
+
+## 2026-09-25 — Security headers: hardened, CSP deferred
+
+**Problem:** an OWASP ZAP baseline scan (FASE 9) flagged missing
+`X-Frame-Options`, `X-Content-Type-Options`, a leaked `X-Powered-By`
+header, and no `Content-Security-Policy`.
+
+**Facts:** the first three are static, unconditional header values — no
+per-request logic needed. CSP is different: inspecting a live response
+confirmed the App Router injects real inline `<script>` tags
+(`self.__next_f.push(...)`) to stream the RSC hydration payload — this is
+core framework behavior, not something this app's own code controls. A
+`script-src` without `'unsafe-inline'` would break hydration outright.
+Next.js's own documented fix is a per-request nonce generated in
+`middleware.ts`, threaded into the CSP header and picked up automatically
+by Next's own inline-script injection — but that means introducing a new
+file and a new request-handling layer the project doesn't have yet, not a
+header tweak.
+
+**Interpretation:** shipping `'unsafe-inline'` just to make a CSP present
+would satisfy the scanner without adding real protection — worse, it
+would look like a solved problem when it isn't. Adding `middleware.ts`
+just for this is a bigger structural change than "fix four headers."
+
+**Decision:** `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+and `poweredByHeader: false` are set centrally in `next.config.ts`. CSP is
+deliberately deferred — revisit once `middleware.ts` exists for another
+real reason, or once a nonce-based CSP is worth introducing on its own
+merits, not as a reaction to a scanner warning.

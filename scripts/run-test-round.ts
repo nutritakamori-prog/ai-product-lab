@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { runTestRound } from "../src/core/testing/runner/round-runner";
 import { formatRoundReport } from "../src/core/testing/runner/round-report";
+import { checkRoundForRegressions } from "../src/core/testing/runner/regression";
 
 /**
  * The CLI entry point for "faça uma rodada de testes no LAB": runs every
@@ -13,10 +14,22 @@ import { formatRoundReport } from "../src/core/testing/runner/round-report";
  * provider.
  *
  *   npm run test-lab:round
+ *
+ * Exits non-zero when a scenario actually FAILED or a regression was
+ * detected — what makes this usable as a CI gate (.github/workflows/) —
+ * never on NEEDS_REVIEW/BLOCKED alone, which are "needs a human", not a
+ * confirmed product failure.
  */
 async function main() {
   const result = await runTestRound();
-  console.log(formatRoundReport(result));
+  const regressions = await checkRoundForRegressions(result.entries);
+  console.log(formatRoundReport(result, regressions));
+
+  const hasFailedRun = result.entries.some((entry) => entry.status === "FAILED");
+  const hasRegression = regressions.some((r) => r.isRegression);
+  if (hasFailedRun || hasRegression) {
+    process.exitCode = 1;
+  }
 }
 
 main()

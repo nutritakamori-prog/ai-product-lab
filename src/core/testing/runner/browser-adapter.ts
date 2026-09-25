@@ -1,4 +1,6 @@
-import { chromium, type Browser, type Page } from "playwright";
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
 /**
  * The seam test-runner.ts depends on instead of talking to Playwright
@@ -28,20 +30,46 @@ const CHROMIUM_EXECUTABLE_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
  * click/fill call not throwing is never treated as evidence on its own.
  */
 export class PlaywrightBrowserAdapter implements BrowserAdapter {
+  private tracingStarted = false;
+
   private constructor(
     private readonly browser: Browser,
+    private readonly context: BrowserContext,
     private readonly page: Page,
     private readonly baseUrl: string,
+    private readonly tracePath: string | null,
   ) {}
 
-  static async launch(baseUrl: string): Promise<PlaywrightBrowserAdapter> {
+  /**
+   * `tracePath`, when given, is where a Playwright trace (screenshots, DOM
+   * snapshots, actions, network) for this scenario's whole run gets written
+   * on `close()` — complementary structural evidence alongside the textual
+   * OBSERVED/EVIDENCE a step executor gathers itself; it never replaces it,
+   * and nothing in this adapter treats the trace file's existence as proof
+   * of anything about the app. Tracing is started once per adapter (one
+   * BrowserContext, covering the whole scenario), never per action.
+   */
+  static async launch(baseUrl: string, tracePath?: string): Promise<PlaywrightBrowserAdapter> {
     const browser = await chromium.launch({
       executablePath: CHROMIUM_EXECUTABLE_PATH,
       headless: true,
       args: ["--no-sandbox"], // required to launch Chromium as root in this environment
     });
     const page = await browser.newPage();
-    return new PlaywrightBrowserAdapter(browser, page, baseUrl);
+    const context = page.context();
+
+    const adapter = new PlaywrightBrowserAdapter(browser, context, page, baseUrl, tracePath ?? null);
+    if (tracePath) {
+      try {
+        await mkdir(path.dirname(tracePath), { recursive: true });
+        await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+        adapter.tracingStarted = true;
+      } catch {
+        // Best-effort — a trace is complementary evidence, never a
+        // precondition for running the scenario itself.
+      }
+    }
+    return adapter;
   }
 
   async navigate(path: string): Promise<{ url: string; html: string }> {
@@ -74,10 +102,19 @@ export class PlaywrightBrowserAdapter implements BrowserAdapter {
   }
 
   async close(): Promise<void> {
-    await this.browser.close();
+    try {
+      if (this.tracingStarted && this.tracePath) {
+        await this.context.tracing.stop({ path: this.tracePath });
+      }
+    } catch {
+      // Best-effort, same reasoning as tracing.start above — never let a
+      // trace-writing failure prevent the browser from actually closing.
+    } finally {
+      await this.browser.close();
+    }
   }
 }
 
-export async function launchBrowserAdapter(baseUrl: string): Promise<PlaywrightBrowserAdapter> {
-  return PlaywrightBrowserAdapter.launch(baseUrl);
+export async function launchBrowserAdapter(baseUrl: string, tracePath?: string): Promise<PlaywrightBrowserAdapter> {
+  return PlaywrightBrowserAdapter.launch(baseUrl, tracePath);
 }

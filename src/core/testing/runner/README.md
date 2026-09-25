@@ -20,6 +20,13 @@ project })`:
    unconfirmed), an execution failure → `NEEDS_REVIEW`. No matching step
    executor → `BLOCKED`, without calling the agent at all.
 
+Steps 3–4 run inside a try/catch: anything that throws there (a missing
+`ANTHROPIC_API_KEY`, a dropped connection — infrastructure, never the
+app) closes the TestRun as `NEEDS_REVIEW` with `finishedAt` set and
+`RunTestScenarioResult.infrastructureError` populated, instead of leaving
+the row stuck at `RUNNING` or letting the exception escape and abort a
+round. See `docs/DECISIONS.md`.
+
 Token usage/cost/model are deliberately not stored again on `TestRun` — it
 references the `AgentExecution` it produced (`executionId`), which already
 has them; join through that row instead of trusting a second copy.
@@ -79,6 +86,14 @@ duplicated. All runs in a round share one fixed, persistent "AI Product Lab
 `services/organizations.ts`'s default organization) rather than a
 throwaway project per round, since the LAB is what's being tested now, not
 an external product.
+
+One scenario failing — for infrastructure reasons or otherwise — never
+stops the round: `runTestScenario()` itself never throws once a TestRun
+exists (see above), and the loop here also catches anything that could
+fail even earlier (e.g. resolving the agent), recording it in `skipped`
+instead. Every remaining scenario still gets attempted, and the round
+still produces a full report at the end. No automatic retry of a failed
+scenario — that's explicitly not built here.
 
 `round-report.ts`'s `formatRoundReport()` turns that result into one
 consolidated, plain-text report: findings grouped by `classification`

@@ -1,4 +1,5 @@
 import { FINDING_CLASSIFICATIONS, IMPACT_LEVELS, type AgentOutput } from "@/domain/agent-output";
+import type { RegressionCheck } from "./regression";
 import type { RoundEntry, TestRoundResult } from "./round-runner";
 
 /**
@@ -8,8 +9,13 @@ import type { RoundEntry, TestRoundResult } from "./round-runner";
  * produced during the round (via the real Agent Runtime) — no new
  * analysis happens here, and nothing here changes any state. This is what
  * gets read back when someone asks "faça uma rodada de testes no LAB".
+ *
+ * `regressions`, when given, is the already-computed output of
+ * `checkRoundForRegressions` (regression.ts) — this function stays pure and
+ * synchronous, so the DB read that produces it happens in the caller
+ * (scripts/run-test-round.ts), not here.
  */
-export function formatRoundReport(result: TestRoundResult): string {
+export function formatRoundReport(result: TestRoundResult, regressions: RegressionCheck[] = []): string {
   const { startedAt, finishedAt, entries, skipped } = result;
   const lines: string[] = [];
 
@@ -53,6 +59,21 @@ export function formatRoundReport(result: TestRoundResult): string {
   }
   lines.push("");
 
+  lines.push("--- REGRESSIONS ---");
+  const regressed = regressions.filter((r) => r.isRegression);
+  if (regressed.length === 0) {
+    lines.push("Nenhuma regressão detectada nesta rodada.");
+  } else {
+    for (const r of regressed) {
+      lines.push("REGRESSION");
+      lines.push(`scenario: ${r.scenarioId}`);
+      lines.push(`previous: ${r.previousStatus}`);
+      lines.push(`current: ${r.currentStatus}`);
+      lines.push("");
+    }
+  }
+  lines.push("");
+
   lines.push("--- DIRETRIZES PARA PRÓXIMA ITERAÇÃO ---");
   const withRecommendation = sortByImpact(findingEntries.filter((entry) => entry.finding.recommendation));
   if (withRecommendation.length === 0) {
@@ -90,6 +111,9 @@ function sortByImpact<T extends { finding: AgentOutput }>(list: T[]): T[] {
 }
 
 function summarize(entry: RoundEntry): string {
+  if (entry.infrastructureError) {
+    return ` — INFRASTRUCTURE ERROR, not a product finding: ${entry.infrastructureError}`;
+  }
   if (entry.finding) return ` — ${entry.finding.finding ?? entry.finding.status}`;
   if (entry.status === "NEEDS_REVIEW") return " — agent execution failed, see test run for details";
   return "";

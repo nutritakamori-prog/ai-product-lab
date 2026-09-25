@@ -6,6 +6,7 @@ import {
   type ModelProvider,
   type StructuredCompletionResult,
 } from "@/core/models/provider";
+import { AgentMessageBus } from "@/core/messaging/agent-message-bus";
 import { runAgent } from "./run-agent";
 import type { ResolvedAgent } from "@/core/agents/registry";
 import type { Project } from "@/generated/prisma/client";
@@ -32,6 +33,7 @@ function fakeProvider(
 ): ModelProvider {
   let callIndex = 0;
   return {
+    name: "fake-test-provider",
     completeStructured: async <T>() => {
       const data = handler(callIndex++);
       return {
@@ -125,6 +127,9 @@ describe("runAgent (integration, fake provider)", () => {
     expect(execution.estimatedCost).toBeGreaterThan(0);
     expect(execution.model).toBe("claude-haiku-4-5");
     expect(execution.agentId).toBe(agent.dbId);
+    // Whichever provider actually answered is recorded — a test double
+    // isn't the real Anthropic provider, so it's classified as MOCK.
+    expect(execution.provider).toBe("MOCK");
   });
 
   it("retries on invalid output and succeeds on the second attempt", async () => {
@@ -179,6 +184,7 @@ describe("runAgent (integration, fake provider)", () => {
   it("passes the agent's tokenBudget as the model's max token cap", async () => {
     let receivedMaxTokens: number | null = null;
     const fake: ModelProvider = {
+      name: "fake-test-provider",
       completeStructured: async <T>(params: { maxTokens: number }) => {
         receivedMaxTokens = params.maxTokens;
         return {
@@ -206,5 +212,112 @@ describe("runAgent (integration, fake provider)", () => {
 
     const after = await db.agentExecution.count({ where: { agentId: agent.dbId } });
     expect(after).toBe(before);
+  });
+});
+
+describe("runAgent + AgentMessageBus integration", () => {
+  let project: Project;
+  let agent: ResolvedAgent;
+  const executionIds: string[] = [];
+
+  beforeAll(async () => {
+    const organization = await getDefaultOrganization();
+    project = await db.project.create({
+      data: { organizationId: organization.id, name: `Runtime messaging test project ${Date.now()}` },
+    });
+    const row = await db.agent.create({
+      data: {
+        slug: `test-runtime-messaging-agent-${Date.now()}`,
+        category: "QA",
+        tokenBudget: 500,
+        modelTier: "LOW_COST",
+        enabled: true,
+      },
+    });
+    agent = makeTestAgent(row.id, { id: "qa-agent" });
+  });
+
+  afterEach(() => {
+    setModelProviderForTesting(null);
+  });
+
+  afterAll(async () => {
+    if (executionIds.length) {
+      await db.agentExecution.deleteMany({ where: { id: { in: executionIds } } });
+    }
+    await db.agent.delete({ where: { id: agent.dbId } });
+    await db.project.delete({ where: { id: project.id } });
+    await db.$disconnect();
+  });
+
+  it("creates no message when needsOtherAgent is null", async () => {
+    setModelProviderForTesting(fakeProvider(() => ({ ...VALID_OUTPUT, needsOtherAgent: null })));
+    const bus = new AgentMessageBus();
+
+    const result = await runAgent({ agent, project, task: "Review something", messageBus: bus });
+    executionIds.push(result.executionId);
+
+    expect(result.status).toBe("SUCCESS");
+    expect(bus.receive("new-user")).toEqual([]);
+    expect(bus.receive("qa-agent")).toEqual([]);
+  });
+
+  it("sends a valid REVIEW_REQUEST when needsOtherAgent names another agent", async () => {
+    setModelProviderForTesting(fakeProvider(() => ({ ...VALID_OUTPUT, needsOtherAgent: "new-user" })));
+    const bus = new AgentMessageBus();
+
+    const result = await runAgent({ agent, project, task: "Review something", messageBus: bus });
+    executionIds.push(result.executionId);
+
+    expect(result.status).toBe("SUCCESS");
+    const inbox = bus.receive("new-user");
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0].type).toBe("REVIEW_REQUEST");
+  });
+
+  it("sets fromAgent to the agent that actually executed", async () => {
+    setModelProviderForTesting(fakeProvider(() => ({ ...VALID_OUTPUT, needsOtherAgent: "new-user" })));
+    const bus = new AgentMessageBus();
+
+    const result = await runAgent({ agent, project, task: "Review something", messageBus: bus });
+    executionIds.push(result.executionId);
+
+    expect(bus.receive("new-user")[0].fromAgent).toBe(agent.id);
+  });
+
+  it("sets toAgent to exactly the slug the output named — never auto-discovered", async () => {
+    setModelProviderForTesting(fakeProvider(() => ({ ...VALID_OUTPUT, needsOtherAgent: "some-other-agent" })));
+    const bus = new AgentMessageBus();
+
+    const result = await runAgent({ agent, project, task: "Review something", messageBus: bus });
+    executionIds.push(result.executionId);
+
+    const inbox = bus.receive("some-other-agent");
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0].toAgent).toBe("some-other-agent");
+    // Nobody else received it — no fan-out, no guessing a recipient.
+    expect(bus.receive("new-user")).toEqual([]);
+  });
+
+  it("preserves the evidence in the REVIEW_REQUEST payload", async () => {
+    setModelProviderForTesting(fakeProvider(() => ({ ...VALID_OUTPUT, needsOtherAgent: "new-user" })));
+    const bus = new AgentMessageBus();
+
+    const result = await runAgent({ agent, project, task: "Review something", messageBus: bus });
+    executionIds.push(result.executionId);
+
+    const [message] = bus.receive("new-user");
+    if (message.type !== "REVIEW_REQUEST") throw new Error("expected a REVIEW_REQUEST");
+    expect(message.payload.evidence).toBe(VALID_OUTPUT.evidence);
+  });
+
+  it("runs normally, with the exact same SUCCESS result, when no messageBus is given at all", async () => {
+    setModelProviderForTesting(fakeProvider(() => ({ ...VALID_OUTPUT, needsOtherAgent: "new-user" })));
+
+    const result = await runAgent({ agent, project, task: "Review something" });
+    executionIds.push(result.executionId);
+
+    expect(result.status).toBe("SUCCESS");
+    expect(result.output?.needsOtherAgent).toBe("new-user");
   });
 });

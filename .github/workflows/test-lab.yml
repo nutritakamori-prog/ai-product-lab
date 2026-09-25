@@ -1,0 +1,150 @@
+name: Test Lab
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-lab:
+    runs-on: ubuntu-latest
+
+    # Same image/credentials as docker-compose.yml's local dev Postgres — a
+    # CI-only ephemeral database, never the developer's own.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ai_product_lab
+          POSTGRES_PASSWORD: ai_product_lab
+          POSTGRES_DB: ai_product_lab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ai_product_lab"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://ai_product_lab:ai_product_lab@localhost:5432/ai_product_lab?schema=public
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      # migrate deploy, not db push: applies the committed migrations as-is,
+      # the same way a real deploy would — never masks a missing/broken
+      # migration by inferring the schema instead.
+      - name: Apply database migrations
+        run: npx prisma migrate deploy
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # Build before the test suite: several existing tests
+      # (test-runner.test.ts, round-runner.test.ts) drive real scenarios
+      # through app-server.ts, which requires an existing production build
+      # and throws immediately if .next isn't there yet — same reason this
+      # project always builds before testing locally.
+      - name: Build
+        run: npm run build
+
+      # browser-adapter.ts already reads
+      # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH from the environment before
+      # falling back to a path that only exists in this project's own dev
+      # sandbox — so CI just needs to install a real Chromium and point that
+      # variable at it, with no code change.
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Resolve Chromium executable path
+        run: echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(node -e "console.log(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: npm test
+
+      # The same command used locally for a real round — no separate CI
+      # implementation. Fails the job on a real FAILED scenario or a
+      # detected regression (see run-test-round.ts's exit code).
+      - name: Test Lab round (real scenarios + regression check)
+        run: npm run test-lab:round
+
+      - name: Upload Playwright traces (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-lab-traces
+          path: test-results/traces/
+          if-no-files-found: ignore
+
+      # A separate, independent security layer — same category as Gitleaks/
+      # OSV-Scanner, but for the app actually running (DAST), not source or
+      # dependencies. Reuses the exact same build the Test Lab already used
+      # (no second build); `app-server.ts` itself isn't reused here because
+      # it's built for many short-lived, randomly-ported servers (one per
+      # test), not one stable, externally-reachable server for an external
+      # container to scan — so this runs `next start` directly, on a fixed
+      # port, same underlying command app-server.ts wraps.
+      - name: Start server for DAST scan
+        run: |
+          npx next start -p 3000 &
+          echo $! > /tmp/next-server.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/ > /dev/null; then
+              echo "Server is up."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server did not become ready in time." >&2
+          exit 1
+
+      # Official image, baseline/passive scan only (spider + passive rules —
+      # no activeScan job, no attack). `-I`: warnings are reported but don't
+      # fail the job — only a real FAIL-level alert does. `.zap/rules.tsv`
+      # documents the only two exclusions (rule/motivo/evidência/data), for
+      # the two alerts FASE 9 identified as likely false positives — nothing
+      # else is suppressed.
+      - name: OWASP ZAP baseline scan (passive DAST)
+        run: |
+          mkdir -p zap-out
+          set +e
+          docker run --network host --rm \
+            -v "$(pwd)/.zap/rules.tsv:/zap/wrk/rules.tsv:ro" \
+            -v "$(pwd)/zap-out:/zap/wrk/out:rw" \
+            -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+            -t http://localhost:3000 \
+            -c rules.tsv \
+            -r out/zap-report.html \
+            -I
+          ZAP_EXIT=$?
+          set -e
+          echo "ZAP exit code: $ZAP_EXIT (0/2 = only warnings or clean, thanks to -I; 1 = a real FAIL-level alert)"
+          exit "$ZAP_EXIT"
+
+      - name: Stop DAST server
+        if: always()
+        run: kill "$(cat /tmp/next-server.pid)" 2>/dev/null || true
+
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-baseline-report
+          path: zap-out/zap-report.html
+          if-no-files-found: ignore

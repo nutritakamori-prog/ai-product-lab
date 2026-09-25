@@ -37,3 +37,15 @@ export function getEnv(): Env {
   cached = parsed.data;
   return cached;
 }
+
+/**
+ * Test-only escape hatch, same reasoning as
+ * core/models/provider.ts's setModelProviderForTesting: getEnv() caches
+ * its result, so a test that mutates process.env (e.g. to exercise
+ * getModelProvider()'s real Anthropic-vs-Mock selection) needs a way to
+ * force the next getEnv() call to re-read it. Never called from production
+ * code paths.
+ */
+export function resetEnvCacheForTesting(): void {
+  cached = null;
+}

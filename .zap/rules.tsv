@@ -1,0 +1,9 @@
+# OWASP ZAP baseline scan — documented rule exclusions.
+# Format: <rule_id>\tIGNORE\t<optional url regex>\t# rule / motivo / evidência / data
+#
+# Every exclusion here is a deliberate decision, not a blanket suppression —
+# see FASE 9 (test) and FASE 10 (this file) of the LAB's own audit trail for
+# the full reasoning. Nothing else found by ZAP is excluded.
+
+10027	IGNORE		# Rule: Information Disclosure - Suspicious Comments. Motivo: dispara em comentarios/sourcemap references dentro dos proprios chunks JS gerados pelo build do Next.js/Turbopack (ex.: /_next/static/chunks/*.js), nao em codigo da aplicacao. Evidencia: FASE 9 (2026-09-23) inspecionou as 10 ocorrencias reportadas - nenhuma continha segredo, chave ou dado sensivel, todas eram comentarios de licenca/build tooling de terceiros. Data da decisao: 2026-09-25.
+10202	IGNORE		# Rule: Absence of Anti-CSRF Tokens. Motivo: o formulario de criacao de projeto (/projects) usa uma Next.js Server Action ("use server" em src/app/projects/actions.ts, form action={createProjectAction}), que tem protecao CSRF nativa via checagem de Origin/Referer do proprio framework - um mecanismo diferente do token oculto tradicional que esta regra do ZAP procura. Evidencia: codigo verificado em 2026-09-25 (FASE 10) - confirmado que e uma Server Action real, nao uma rota tradicional sem protecao. Revisitar se um formulario fora de Server Actions for adicionado no futuro.

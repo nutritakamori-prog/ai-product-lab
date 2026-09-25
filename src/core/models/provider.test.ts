@@ -1,4 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
+import { resetEnvCacheForTesting } from "@/lib/env";
 import {
   estimateCost,
   MODEL_TIER_TO_ID,
@@ -44,6 +45,7 @@ describe("getModelProvider / setModelProviderForTesting", () => {
 
   it("returns whatever provider was injected for testing", () => {
     const fake: ModelProvider = {
+      name: "fake-test-provider",
       completeStructured: async () => ({
         data: null,
         rawText: null,
@@ -54,5 +56,38 @@ describe("getModelProvider / setModelProviderForTesting", () => {
     };
     setModelProviderForTesting(fake);
     expect(getModelProvider()).toBe(fake);
+  });
+});
+
+describe("getModelProvider — Anthropic vs Mock selection", () => {
+  const originalKey = process.env.ANTHROPIC_API_KEY;
+
+  afterEach(() => {
+    if (originalKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = originalKey;
+    resetEnvCacheForTesting();
+    setModelProviderForTesting(null);
+  });
+
+  it("uses the real Anthropic provider when ANTHROPIC_API_KEY is configured", () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test-not-a-real-key";
+    resetEnvCacheForTesting();
+    setModelProviderForTesting(null);
+
+    // Constructing the real AnthropicModelProvider makes no network call —
+    // it only stores the SDK client. No real request happens in this test.
+    const provider = getModelProvider();
+
+    expect(provider.name).toBe("anthropic");
+  });
+
+  it("uses the Mock provider automatically when ANTHROPIC_API_KEY is not configured", () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    resetEnvCacheForTesting();
+    setModelProviderForTesting(null);
+
+    const provider = getModelProvider();
+
+    expect(provider.name).toBe("mock");
   });
 });

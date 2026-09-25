@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test-lab:round": "tsx scripts/run-test-round.ts"
+    "test-lab:round": "tsx scripts/run-test-round.ts",
+    "security:check": "bash scripts/security-check.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

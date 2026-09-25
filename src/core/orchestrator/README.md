@@ -14,5 +14,11 @@ only ever shows: AGENT SELECTED / REASON / PRIORITY — never chain-of-thought.
 **Not this module's job:** executing an agent (`core/runtime`) or building its
 context (`core/context`).
 
-_(Empty until Phase 4 — Master Orchestrator, though the Smart Router's first
-simple version arrives together with the first agents in Phase 5.)_
+_(Master Orchestrator itself still empty — deferred. The Smart Router's
+first, minimal version now exists: `smart-router.ts`. It picks exactly one
+initial agent by a small deterministic keyword rule — no LLM call, no agent
+discovery — then hands off entirely to the existing coordination layer
+(`core/coordination/`), which already enforces the call/round limits. No
+routing justification structure, no multi-round consensus, no conflict
+detection/deduplication yet — those stay future work for the real Master
+Orchestrator described above.)_

@@ -41,6 +41,8 @@ export interface RoundEntry {
   status: TestRunStatus;
   /** The one finding/suspicion this run produced, or null if there was nothing to report. */
   finding: AgentOutput | null;
+  /** Set when this run failed for infrastructure reasons, never a product finding. See test-runner.ts. */
+  infrastructureError: string | null;
 }
 
 export interface SkippedScenario {
@@ -73,24 +75,39 @@ export async function runTestRound(): Promise<TestRoundResult> {
   const skipped: SkippedScenario[] = [];
 
   for (const scenario of scenarios) {
-    const agent = await AgentRegistry.getBySlug(scenario.agent);
-    if (!agent) {
-      skipped.push({ scenario, reason: `No agent named "${scenario.agent}" exists in the agent library.` });
-      continue;
-    }
-    if (!agent.enabled) {
-      skipped.push({ scenario, reason: `Agent "${scenario.agent}" exists but is disabled.` });
-      continue;
-    }
+    // One scenario's failure must never stop the round — every remaining
+    // scenario still gets attempted. runTestScenario() itself already
+    // guarantees it won't throw once a TestRun exists (see its own
+    // try/catch); this outer try/catch is defense in depth for anything
+    // that could fail even before that point (e.g. resolving the agent) —
+    // it's not the primary mechanism, just a second layer.
+    try {
+      const agent = await AgentRegistry.getBySlug(scenario.agent);
+      if (!agent) {
+        skipped.push({ scenario, reason: `No agent named "${scenario.agent}" exists in the agent library.` });
+        continue;
+      }
+      if (!agent.enabled) {
+        skipped.push({ scenario, reason: `Agent "${scenario.agent}" exists but is disabled.` });
+        continue;
+      }
 
-    const result = await runTestScenario({ scenario, agent, project });
-    entries.push({
-      testRunId: result.testRunId,
-      scenario,
-      agent,
-      status: result.status,
-      finding: result.findings[0] ?? null,
-    });
+      const result = await runTestScenario({ scenario, agent, project });
+      entries.push({
+        testRunId: result.testRunId,
+        scenario,
+        agent,
+        status: result.status,
+        finding: result.findings[0] ?? null,
+        infrastructureError: result.infrastructureError,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      skipped.push({
+        scenario,
+        reason: `Infrastructure error before a TestRun could be recorded: ${message}`,
+      });
+    }
   }
 
   return { startedAt, finishedAt: new Date(), entries, skipped };

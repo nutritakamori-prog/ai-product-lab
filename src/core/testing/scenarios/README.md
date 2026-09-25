@@ -31,5 +31,17 @@ without a deploy shows up (e.g. a QA-facing screen to author new ones).
 3. Add a matching entry to `STEP_EXECUTORS` in `../runner/test-runner.ts` —
    without one, a `TestRun` for that scenario comes back `BLOCKED`.
 
-_(Two scenarios today: `new-user-creates-first-project` and
-`new-user-discovers-and-creates-first-project`, both written for `new-user`.)_
+_(Eight scenarios today: `new-user-creates-first-project`,
+`new-user-discovers-and-creates-first-project`, `new-user-explores-agents-area`,
+`new-user-explores-settings` (both read-only — they don't create or mutate
+anything), `new-user-submits-empty-project-name` (deliberately submits
+invalid input to check how the app responds), and
+`new-user-creates-project-and-returns-to-list` (confirms persistence across
+a real navigation away and back, not just the post-submit render), all
+written for `new-user`; and two written for `qa-agent` —
+`qa-agent-validates-empty-project-name-submission` (the same empty-name
+submission, evaluated as a functional correctness check — was it blocked,
+was nothing invalid created — rather than an onboarding/UX assessment) and
+`qa-agent-verifies-project-persistence-after-creation` (the same
+create-and-return flow as new-user's version, plus a direct database check
+that the project genuinely persisted, not just what the page renders).)_

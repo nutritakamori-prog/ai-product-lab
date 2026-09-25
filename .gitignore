@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/test-results
+/zap-out
 
 # next.js
 /.next/

@@ -3,14 +3,15 @@ import { db } from "@/lib/db";
 import { AgentRegistry } from "./registry";
 
 // Real integration test against local Postgres and the real agent library
-// (only "new-user" exists in it right now). The Agent row this creates for
-// "new-user" is NOT cleaned up afterward — a library agent's operational row
+// ("new-user" and "qa-agent" exist in it right now). The Agent rows this
+// creates are NOT cleaned up afterward — a library agent's operational row
 // is meant to persist, exactly like it would in real use; getBySlug/list are
 // find-or-create and idempotent, so re-running these tests is safe.
 describe("AgentRegistry (integration)", () => {
   describe("discovery", () => {
     it("lists every agent id known to the library", () => {
       expect(AgentRegistry.discoverSlugs()).toContain("new-user");
+      expect(AgentRegistry.discoverSlugs()).toContain("qa-agent");
     });
   });
 
@@ -25,6 +26,15 @@ describe("AgentRegistry (integration)", () => {
       expect(definition?.whenNotToCall.length).toBeGreaterThan(0);
     });
 
+    it("loads and validates the qa-agent definition from its file", () => {
+      const definition = AgentRegistry.loadDefinition("qa-agent");
+      expect(definition).not.toBeNull();
+      expect(definition?.id).toBe("qa-agent");
+      expect(definition?.category).toBe("QA");
+      expect(definition?.systemPrompt.length).toBeGreaterThan(0);
+      expect(definition?.whenNotToCall.length).toBeGreaterThan(0);
+    });
+
     it("returns null for an id that doesn't exist in the library", () => {
       expect(AgentRegistry.loadDefinition("does-not-exist")).toBeNull();
     });
@@ -35,6 +45,16 @@ describe("AgentRegistry (integration)", () => {
       const agent = await AgentRegistry.getBySlug("new-user");
       expect(agent).not.toBeNull();
       expect(agent?.id).toBe("new-user");
+      expect(agent?.dbId).toBeTruthy();
+      expect(agent?.tokenBudget).toBeGreaterThan(0);
+      expect(typeof agent?.enabled).toBe("boolean");
+    });
+
+    it("resolves qa-agent with its operational state merged in", async () => {
+      const agent = await AgentRegistry.getBySlug("qa-agent");
+      expect(agent).not.toBeNull();
+      expect(agent?.id).toBe("qa-agent");
+      expect(agent?.category).toBe("QA");
       expect(agent?.dbId).toBeTruthy();
       expect(agent?.tokenBudget).toBeGreaterThan(0);
       expect(typeof agent?.enabled).toBe("boolean");
