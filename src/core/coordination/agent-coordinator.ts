@@ -3,6 +3,7 @@ import { AgentRegistry, type ResolvedAgent } from "@/core/agents/registry";
 import { runAgent, type RunAgentResult } from "@/core/runtime/run-agent";
 import { AgentMessageBus } from "@/core/messaging/agent-message-bus";
 import type { AgentMessage } from "@/domain/agent-message";
+import { addSharedEvidence, buildSharedEvidenceContext, extractSharedEvidence, type SharedEvidence } from "./evidence-sharing";
 
 /**
  * Explicit, hard-coded execution limits — never a token/cost budget (that's
@@ -43,19 +44,29 @@ export interface CoordinationResult {
   messages: AgentMessage[];
   /** Every agent id actually executed this task, in call order (never more than maxAgentCallsPerTask). */
   agentsCalled: string[];
+  /**
+   * The evidence actually shared into this task, in the order it was
+   * produced — see src/core/coordination/evidence-sharing.ts. Empty when
+   * no agent produced any evidence. Exactly what was passed as `context`
+   * to the specialist's run, nothing more.
+   */
+  sharedEvidence: SharedEvidence[];
 }
 
+/**
+ * The specialist's task text stays short and points at the shared
+ * evidence rather than restating it — the evidence itself travels once,
+ * via runAgent's existing `context` param (see evidence-sharing.ts), never
+ * duplicated into the task text too.
+ */
 function buildReviewTask(reviewRequest: Extract<AgentMessage, { type: "REVIEW_REQUEST" }>): string {
   return [
     "You are being asked by another agent to review a finding functionally, via a REVIEW_REQUEST.",
     `Reason for review: ${reviewRequest.payload.reason}`,
     "",
-    "1. ACTION: Review the evidence received from the requesting agent.",
-    "   EXPECTED: The evidence is usable for a functional judgment.",
-    `   OBSERVED: ${reviewRequest.payload.evidence ?? "(no evidence attached)"}`,
-    `   EVIDENCE: REVIEW_REQUEST payload.evidence = "${reviewRequest.payload.evidence}"`,
+    "The evidence already gathered by the requesting agent is provided below, under Context ('sharedEvidence') — reuse it directly. Do not re-investigate, repeat browser actions, or re-derive an observation that evidence already covers.",
     "",
-    'Based ONLY on the observation above, report status "FINDING" if there is a real, evidenced problem, "NO_FINDING" if everything worked as expected, or "UNCONFIRMED" if unsure.',
+    'Based ONLY on that shared evidence, report status "FINDING" if there is a real, evidenced problem, "NO_FINDING" if everything worked as expected, or "UNCONFIRMED" if the shared evidence is insufficient.',
   ].join("\n");
 }
 
@@ -64,8 +75,9 @@ function blocked(
   reason: string,
   initialResult: RunAgentResult,
   agentsCalled: string[],
+  sharedEvidence: SharedEvidence[],
 ): CoordinationResult {
-  return { status, blockedReason: reason, initialResult, reviewResult: null, messages: [], agentsCalled };
+  return { status, blockedReason: reason, initialResult, reviewResult: null, messages: [], agentsCalled, sharedEvidence };
 }
 
 /**
@@ -91,17 +103,41 @@ export async function coordinateAgentTask(input: CoordinateAgentTaskInput): Prom
     messageBus: bus,
   });
 
+  // What the initial agent actually found, extracted once — the only
+  // thing later steps ever share with the specialist (see
+  // evidence-sharing.ts). Computed here, before any blocked/limit return,
+  // so even a blocked outcome reports what was captured, not just what got
+  // used.
+  const sharedEvidence = addSharedEvidence(
+    [],
+    extractSharedEvidence(input.initialAgent.id, initialResult.status === "SUCCESS" ? initialResult.output : null),
+  );
+
   const needsOtherAgent =
     initialResult.status === "SUCCESS" ? (initialResult.output?.needsOtherAgent ?? null) : null;
 
   // Nothing requested (or the initial run itself didn't succeed) — normal
   // end, no coordination needed. Never a blocked/limit outcome.
   if (!needsOtherAgent) {
-    return { status: "COMPLETED", blockedReason: null, initialResult, reviewResult: null, messages: [], agentsCalled };
+    return {
+      status: "COMPLETED",
+      blockedReason: null,
+      initialResult,
+      reviewResult: null,
+      messages: [],
+      agentsCalled,
+      sharedEvidence,
+    };
   }
 
   if (limits.maxReviewRounds < 1) {
-    return blocked("LIMIT_REACHED", `maxReviewRounds (${limits.maxReviewRounds}) allows no review round.`, initialResult, agentsCalled);
+    return blocked(
+      "LIMIT_REACHED",
+      `maxReviewRounds (${limits.maxReviewRounds}) allows no review round.`,
+      initialResult,
+      agentsCalled,
+      sharedEvidence,
+    );
   }
 
   if (agentsCalled.length >= limits.maxAgentCallsPerTask) {
@@ -110,6 +146,7 @@ export async function coordinateAgentTask(input: CoordinateAgentTaskInput): Prom
       `maxAgentCallsPerTask (${limits.maxAgentCallsPerTask}) was already reached before a specialist could be called.`,
       initialResult,
       agentsCalled,
+      sharedEvidence,
     );
   }
 
@@ -121,6 +158,7 @@ export async function coordinateAgentTask(input: CoordinateAgentTaskInput): Prom
       `Agent "${needsOtherAgent}" was already called in this task — the same agent cannot be called twice.`,
       initialResult,
       agentsCalled,
+      sharedEvidence,
     );
   }
 
@@ -128,7 +166,13 @@ export async function coordinateAgentTask(input: CoordinateAgentTaskInput): Prom
   // never guessed or auto-discovered, only ever exactly what was named.
   const specialist = await AgentRegistry.getBySlug(needsOtherAgent);
   if (!specialist) {
-    return blocked("COORDINATION_BLOCKED", `Agent "${needsOtherAgent}" does not exist in the Registry.`, initialResult, agentsCalled);
+    return blocked(
+      "COORDINATION_BLOCKED",
+      `Agent "${needsOtherAgent}" does not exist in the Registry.`,
+      initialResult,
+      agentsCalled,
+      sharedEvidence,
+    );
   }
 
   // runAgent() already sent the REVIEW_REQUEST as part of the initial run
@@ -142,13 +186,19 @@ export async function coordinateAgentTask(input: CoordinateAgentTaskInput): Prom
       `No REVIEW_REQUEST was found addressed to "${specialist.id}" — nothing to review.`,
       initialResult,
       agentsCalled,
+      sharedEvidence,
     );
   }
 
+  // The specialist receives the shared evidence via the existing `context`
+  // param — never a second, redundant copy embedded in the task text too.
+  // No additional agent/model call happens to produce or deliver this; it
+  // rides the one specialist call that was already going to happen.
   const reviewResult = await runAgent({
     agent: specialist,
     project: input.project,
     task: buildReviewTask(reviewRequest),
+    context: buildSharedEvidenceContext(sharedEvidence),
   });
   agentsCalled.push(specialist.id);
 
@@ -193,5 +243,6 @@ export async function coordinateAgentTask(input: CoordinateAgentTaskInput): Prom
     reviewResult,
     messages: [reviewRequest, reviewResponse],
     agentsCalled,
+    sharedEvidence,
   };
 }
