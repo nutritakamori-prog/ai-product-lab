@@ -229,3 +229,98 @@ describe("routeTask", () => {
     });
   });
 });
+
+describe("routeTask — ux-agent rule", () => {
+  let project: Project;
+  const executionIds: string[] = [];
+
+  const UX_AGENT_OUTPUT = {
+    agent: "ux-agent",
+    status: "NO_FINDING" as const,
+    finding: null,
+    evidence: null,
+    impact: null,
+    recommendation: null,
+    confidence: "MEDIUM" as const,
+    classification: null,
+    needsOtherAgent: null as string | null,
+  };
+
+  beforeAll(async () => {
+    const organization = await getDefaultOrganization();
+    project = await db.project.create({
+      data: { organizationId: organization.id, name: `Smart Router ux-agent test project ${Date.now()}` },
+    });
+  });
+
+  afterEach(() => {
+    setModelProviderForTesting(null);
+  });
+
+  afterAll(async () => {
+    if (executionIds.length) {
+      await db.agentExecution.deleteMany({ where: { id: { in: executionIds } } });
+    }
+    await db.project.delete({ where: { id: project.id } });
+    await db.$disconnect();
+  });
+
+  function trackExecutions(result: { coordination: { initialResult: { executionId: string } } | null }) {
+    if (result.coordination) executionIds.push(result.coordination.initialResult.executionId);
+  }
+
+  it("2. tarefa explícita de UX -> Router escolhe ux-agent", async () => {
+    setModelProviderForTesting(sequentialProvider([UX_AGENT_OUTPUT]));
+
+    const result = await routeTask({
+      task: "Avalie a clareza do fluxo e a fricção na experiência do usuário ao criar um projeto.",
+      project,
+    });
+    trackExecutions(result);
+
+    expect(result.chosenAgent).toBe("ux-agent");
+    expect(result.status).toBe("COMPLETED");
+  });
+
+  it("7. fluxo existente de new-user (onboarding) continua funcionando após adicionar a regra do ux-agent", async () => {
+    setModelProviderForTesting(sequentialProvider([NEW_USER_OUTPUT]));
+
+    const result = await routeTask({ task: "Avalie o onboarding de um novo usuário no app.", project });
+    trackExecutions(result);
+
+    expect(result.chosenAgent).toBe("new-user");
+    expect(result.status).toBe("COMPLETED");
+  });
+
+  it("8. fluxo existente de qa-agent continua funcionando após adicionar a regra do ux-agent", async () => {
+    setModelProviderForTesting(sequentialProvider([QA_AGENT_OUTPUT]));
+
+    const result = await routeTask({ task: "Faça a validação e verificação da evidência deste bug.", project });
+    trackExecutions(result);
+
+    expect(result.chosenAgent).toBe("qa-agent");
+    expect(result.status).toBe("COMPLETED");
+  });
+
+  it("9. adicionar a regra do ux-agent não gera nenhuma chamada extra em uma tarefa de onboarding comum", async () => {
+    let callCount = 0;
+    setModelProviderForTesting({
+      name: "call-counting-provider",
+      completeStructured: async <T>() => {
+        callCount += 1;
+        return {
+          data: NEW_USER_OUTPUT as T,
+          rawText: JSON.stringify(NEW_USER_OUTPUT),
+          inputTokens: 10,
+          outputTokens: 10,
+          stopReason: "end_turn",
+        };
+      },
+    });
+
+    const result = await routeTask({ task: "Avalie o onboarding de um novo usuário no app.", project });
+    trackExecutions(result);
+
+    expect(callCount).toBe(1);
+  });
+});

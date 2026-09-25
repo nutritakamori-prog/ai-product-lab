@@ -1,5 +1,6 @@
 import newUser from "./experience/new-user";
 import qaAgent from "./qa/qa-agent";
+import uxAgent from "./ux/ux-agent";
 import type { AgentDefinition } from "./system/agent-protocol";
 
 /**
@@ -14,4 +15,4 @@ import type { AgentDefinition } from "./system/agent-protocol";
  * A plain static import is the safe, standard way to do a plugin-style
  * registry in a bundled app, at the cost of one extra line per agent.
  */
-export const AGENT_DEFINITIONS: AgentDefinition[] = [newUser, qaAgent];
+export const AGENT_DEFINITIONS: AgentDefinition[] = [newUser, qaAgent, uxAgent];

@@ -34,6 +34,11 @@ const AGENT_MATCH_RULES: AgentMatchRule[] = [
     pattern: /\b(qa|valida[cç][aã]o|validar|evid[eê]ncia|verifica[cç][aã]o|verificar)\b/i,
     reason: "Task mentions QA/validation/evidence/verification — matched the qa-agent rule.",
   },
+  {
+    agentId: "ux-agent",
+    pattern: /\b(ux|experi[eê]ncia do usu[aá]rio|user experience|fluxo|usabilidade|usability|fric[cç][aã]o|friction|clareza de interface|clareza do fluxo)\b/i,
+    reason: "Task mentions UX/user experience/flow/usability/friction/interface clarity — matched the ux-agent rule.",
+  },
 ];
 
 function chooseInitialAgentId(task: string): { agentId: string; reason: string } | null {
@@ -82,7 +87,8 @@ export async function routeTask(input: RouteTaskInput): Promise<RouteTaskResult>
   if (!choice) {
     return {
       chosenAgent: null,
-      reason: "No routing rule matched this task — not onboarding/first-use, not QA/validation/evidence/verification.",
+      reason:
+        "No routing rule matched this task — not onboarding/first-use, not QA/validation/evidence/verification, not UX/experience/flow/usability/friction.",
       coordination: null,
       agentsCalled: [],
       status: "COORDINATION_BLOCKED",
