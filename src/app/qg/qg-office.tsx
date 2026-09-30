@@ -9,8 +9,10 @@ import {
   Clock,
   FileText,
   FlaskConical,
+  Lightbulb,
   LogIn,
   Maximize2,
+  Search,
   Sparkles,
   Users,
   Wrench,
@@ -106,7 +108,38 @@ const STATE_INACTIVE: Record<AgentQgState, boolean> = {
   PENDING_DECISION: false,
 };
 
-type PanelState = { type: "agent"; agentId: string } | { type: "head" } | { type: "meeting" } | { type: "reports" } | { type: "clock" } | null;
+type PanelState =
+  | { type: "agent"; agentId: string }
+  | { type: "head" }
+  | { type: "mission" }
+  | { type: "findings" }
+  | { type: "meeting" }
+  | { type: "reports" }
+  | { type: "clock" }
+  | null;
+
+/**
+ * FASE 9E — Discovery Wing "Findings" board. Reconstructs the original
+ * consolidated finding list (one entry per real finding, with every agent
+ * that reported it) purely by grouping the already-fan-out-per-agent
+ * `station.findings` by exact text — the same text page.tsx already copies
+ * verbatim from `latestReport.findings[].finding` into every contributing
+ * station. No new data, no fuzzy matching, nothing invented.
+ */
+function buildDiscoveryFindings(stations: AgentStationData[]) {
+  const byText = new Map<string, { text: string; agentNames: string[]; recommendationStatus: string | null }>();
+  for (const station of stations) {
+    for (const finding of station.findings) {
+      const existing = byText.get(finding.text);
+      if (existing) {
+        if (!existing.agentNames.includes(station.name)) existing.agentNames.push(station.name);
+      } else {
+        byText.set(finding.text, { text: finding.text, agentNames: [station.name], recommendationStatus: finding.recommendationStatus });
+      }
+    }
+  }
+  return Array.from(byText.values());
+}
 
 const ZOOM_MIN = 0.6;
 const ZOOM_MAX = 1.4;
@@ -189,14 +222,38 @@ function Desk({
   );
 }
 
-/** An enclosed room on the floor plan — Head and the specialists' area — framed with a wall-like border and a small nameplate. Individual objects/stations don't get a nameplate, only actual rooms do. */
-function Room({ label, accent = false, children }: { label: string; accent?: boolean; children: React.ReactNode }) {
+/**
+ * An enclosed "building" on the LAB Campus — framed with a wall-like border
+ * and a permanent nameplate (never dependent on hover). `hint` is the short,
+ * always-visible caption answering what real question this building
+ * addresses. `size="lg"` is reserved for the Command Center, the one
+ * building with top-level visual hierarchy.
+ */
+function Room({
+  label,
+  hint,
+  accent = false,
+  size = "md",
+  children,
+}: {
+  label: string;
+  hint?: string;
+  accent?: boolean;
+  size?: "md" | "lg";
+  children: React.ReactNode;
+}) {
   return (
-    <div className={`qg-room p-4 sm:p-5 ${accent ? "border-accent/50 bg-accent/[0.05]" : ""}`}>
+    <div className={`qg-room ${size === "lg" ? "p-5 sm:p-6" : "p-4 sm:p-5"} ${accent ? "border-accent/50 bg-accent/[0.05]" : ""}`}>
       <span className={`qg-room-label ${accent ? "border-accent/50 text-accent" : ""}`}>{label}</span>
+      {hint ? <p className="qg-room-hint">{hint}</p> : null}
       {children}
     </div>
   );
+}
+
+/** A short segment of visible circulation between two buildings on the Campus — purely structural, no motion. */
+function PathConnector() {
+  return <div aria-hidden className="mx-auto my-4 h-5 w-px bg-border" />;
 }
 
 export function QgOffice({ data }: { data: QgOfficeData }) {
@@ -205,6 +262,7 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
   const [quickViewOpen, setQuickViewOpen] = useState(false);
 
   const activeAgent = panel?.type === "agent" ? data.stations.find((s) => s.id === panel.agentId) : undefined;
+  const discoveryFindings = buildDiscoveryFindings(data.stations);
 
   return (
     <div className="flex h-full flex-col">
@@ -223,8 +281,8 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
             </span>
           </div>
           <p className="text-xs text-muted">
-            O escritório visual do LAB — clique em uma estação para ver o estado real de cada especialista, decidir
-            Recommendations pendentes ou abrir Product Intelligence e Test Lab.
+            O campus visual do LAB — clique em um prédio para ver o estado real de cada área, decidir Recommendations
+            pendentes ou abrir Product Intelligence e Test Lab.
           </p>
         </div>
 
@@ -269,7 +327,7 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
       <div className="relative flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto p-6">
           <div
-            className="qg-floor mx-auto min-w-[600px] max-w-5xl origin-top rounded-2xl border border-border p-5 shadow-sm transition-transform sm:p-8"
+            className="qg-floor mx-auto max-w-5xl origin-top rounded-2xl border border-border p-5 shadow-sm transition-transform sm:min-w-[600px] sm:p-8"
             style={{ transform: `scale(${zoom})` }}
           >
             <div className="mb-5 flex items-center justify-between gap-3">
@@ -295,7 +353,7 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
               </button>
             </div>
 
-            <Room label="Head" accent>
+            <Room label="Command Center" hint="Coordenação — o que está acontecendo com o produto?" accent size="lg">
               <Desk
                 variant="head"
                 label="Head"
@@ -312,14 +370,19 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                 // necessarily all from earlier runs (a fresh run can also
                 // leave its own findings PENDING).
                 badgeLabel="pendente(s) no total"
-                ariaLabel="Estação do Head — ver consolidação e recomendação principal"
+                ariaLabel="Command Center — Head — ver consolidação e recomendação principal"
                 onClick={() => setPanel({ type: "head" })}
               />
             </Room>
 
-            <div className="mt-5">
-              <Room label="Especialistas">
-                <div className="grid grid-cols-4 gap-3">
+            <PathConnector />
+            <p className="mb-4 text-center text-[10px] font-semibold uppercase tracking-wide text-muted">
+              Investigate → Find → Decide → Build → Test → Learn
+            </p>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Room label="Agent Wing" hint="Investigar — quem está trabalhando?">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   {data.stations.map((agent) => (
                     <Desk
                       key={agent.id}
@@ -334,44 +397,72 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                   ))}
                 </div>
               </Room>
+
+              <Room label="Discovery Wing" hint="Descobrir — o que estamos investigando e o que encontramos?">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPanel({ type: "mission" })}
+                    aria-label={
+                      data.latestMission
+                        ? `Missions — última avaliação: ${data.latestMission.target}, status ${data.latestMission.status}`
+                        : "Missions — nenhuma avaliação executada ainda"
+                    }
+                    className="group flex flex-col items-center gap-2 rounded-lg p-3 text-center transition-transform hover:-translate-y-0.5"
+                  >
+                    <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
+                      <Search size={18} />
+                    </span>
+                    <span className="text-xs font-medium">Missions</span>
+                    <span className="text-[10px] leading-tight text-muted">
+                      {data.latestMission ? `${data.latestMission.target} · ${data.latestMission.status}` : "Nenhuma avaliação ainda"}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPanel({ type: "findings" })}
+                    aria-label={`Findings — ${discoveryFindings.length} descoberta(s) na última avaliação`}
+                    className="group relative flex flex-col items-center gap-2 rounded-lg p-3 text-center transition-transform hover:-translate-y-0.5"
+                  >
+                    {discoveryFindings.length > 0 ? (
+                      <span
+                        aria-hidden
+                        data-count={discoveryFindings.length}
+                        className="qg-decorative-count absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-[11px] font-medium text-white"
+                      />
+                    ) : null}
+                    <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
+                      <Lightbulb size={18} />
+                    </span>
+                    <span className="text-xs font-medium">Findings</span>
+                    <span className="text-[10px] leading-tight text-muted">
+                      {discoveryFindings.length > 0 ? `${discoveryFindings.length} descoberta(s)` : "Nenhuma descoberta ainda"}
+                    </span>
+                  </button>
+                </div>
+              </Room>
             </div>
 
-            <p className="mb-2 mt-6 text-[10px] font-semibold uppercase tracking-wide text-muted">Decisão e ação</p>
-            <div className="grid grid-cols-3 gap-3">
-              <button
-                type="button"
-                onClick={() => setPanel({ type: "meeting" })}
-                aria-label="Mesa de reunião — ver visão consolidada da equipe"
-                className="qg-room group flex flex-col items-center justify-center gap-3 p-5 text-center transition-colors hover:border-accent"
-              >
-                <span aria-hidden className="relative flex h-14 w-24 items-center justify-center">
-                  <span className="h-7 w-20 rounded-full border-2 border-border bg-background shadow-sm transition-colors group-hover:border-accent" />
-                  <span className="absolute -top-1 left-4 h-2 w-2 rounded-full bg-border" />
-                  <span className="absolute -top-1 right-4 h-2 w-2 rounded-full bg-border" />
-                  <span className="absolute -bottom-1 left-4 h-2 w-2 rounded-full bg-border" />
-                  <span className="absolute -bottom-1 right-4 h-2 w-2 rounded-full bg-border" />
-                </span>
-                <span className="text-xs font-medium">Mesa de reunião</span>
-                <span className="text-[10px] leading-tight text-muted">{data.head.totalFindings} ponto(s) de atenção</span>
-              </button>
+            <PathConnector />
 
+            <Room label="Intelligence Center" hint="Decidir — o que aprendemos e o que podemos melhorar?">
               <Link
                 href="/product-intelligence"
-                className="qg-room group relative flex flex-col items-center justify-center gap-2 border-dashed p-4 text-center transition-colors hover:border-accent"
-                aria-label={`Quadro — Product Intelligence (${data.pendingCount} pendente(s))`}
+                className="group relative flex flex-col items-center gap-2 rounded-lg p-3 text-center transition-transform hover:-translate-y-0.5"
+                aria-label={`Product Intelligence e Recommendations — ${data.pendingCount} pendente(s)`}
               >
                 {data.pendingCount > 0 ? (
                   <span
                     aria-hidden
                     data-count={data.pendingCount}
-                    className="qg-decorative-count absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-medium text-white"
+                    className="qg-decorative-count absolute right-[calc(50%-36px)] top-0 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-medium text-white"
                   />
                 ) : null}
-                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-border" />
                 <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
                   <ClipboardList size={18} />
                 </span>
-                <span className="text-xs font-medium">Quadro · Product Intelligence</span>
+                <span className="text-xs font-medium">Product Intelligence · Recommendations</span>
                 <span className="flex flex-col text-[10px] leading-tight text-muted">
                   {data.pendingCount > 0 ? <span>{data.pendingCount} pendente(s)</span> : null}
                   <span>
@@ -379,12 +470,18 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                   </span>
                 </span>
               </Link>
+            </Room>
 
+            <PathConnector />
+
+            <div className="grid gap-4 sm:grid-cols-2">
               <Link
                 href="/product-intelligence"
                 className="qg-room group relative flex flex-col items-center justify-center gap-2 p-4 text-center transition-colors hover:border-accent"
-                aria-label={`Implementation — ${data.approvedCount} tarefa(s) aprovada(s)`}
+                aria-label={`Workshop — Implementation — ${data.approvedCount} tarefa(s) aprovada(s)`}
               >
+                <span className="qg-room-label">Workshop</span>
+                <p className="qg-room-hint">O que está sendo construído?</p>
                 {data.approvedCount > 0 ? (
                   <span
                     aria-hidden
@@ -403,15 +500,14 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                 <span className="text-xs font-medium">Implementation</span>
                 {data.approvedCount > 0 ? <span className="text-[10px] leading-tight text-muted">{data.approvedCount} aprovada(s)</span> : null}
               </Link>
-            </div>
 
-            <p className="mb-2 mt-6 text-[10px] font-semibold uppercase tracking-wide text-muted">Suporte</p>
-            <div className="grid grid-cols-3 gap-3">
               <Link
                 href="/test-lab"
                 className="qg-room group flex flex-col items-center justify-center gap-2 p-4 text-center transition-colors hover:border-accent"
-                aria-label="Retest — Test Lab"
+                aria-label="Test Lab — validação"
               >
+                <span className="qg-room-label">Test Lab</span>
+                <p className="qg-room-hint">A mudança funcionou?</p>
                 <span aria-hidden className="flex gap-1">
                   <span className="h-3 w-4 rounded-sm border border-border bg-background" />
                   <span className="h-3 w-4 rounded-sm border border-border bg-background" />
@@ -422,18 +518,43 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                 </span>
                 <span className="text-xs font-medium">Retest · Test Lab</span>
               </Link>
+            </div>
 
+            <div className="mt-8 flex justify-center sm:justify-start">
               <Link
                 href="/product-intelligence#historico"
-                className="qg-room group flex flex-col items-center justify-center gap-2 p-4 text-center transition-colors hover:border-accent"
-                aria-label={`Arquivo — histórico de avaliações (${data.missionHistoryCount})`}
+                className="qg-room group flex w-full max-w-[220px] flex-col items-center gap-2 p-3 text-center opacity-90 transition-colors hover:border-accent hover:opacity-100"
+                aria-label={`Archive — histórico de avaliações (${data.missionHistoryCount})`}
               >
-                <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
-                  <Archive size={18} />
+                <span className="qg-room-label">Archive</span>
+                <p className="qg-room-hint">O que já aconteceu?</p>
+                <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
+                  <Archive size={16} />
                 </span>
                 <span aria-hidden className="h-0.5 w-6 rounded-full bg-border" />
                 <span className="text-xs font-medium">Arquivo</span>
+                <span className="text-[10px] leading-tight text-muted">{data.missionHistoryCount} avaliação(ões) registrada(s)</span>
               </Link>
+            </div>
+
+            <p className="mb-2 mt-8 text-[10px] font-semibold uppercase tracking-wide text-muted">Outras ferramentas</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPanel({ type: "meeting" })}
+                aria-label="Mesa de reunião — ver visão consolidada da equipe"
+                className="qg-room group flex flex-col items-center justify-center gap-3 p-4 text-center transition-colors hover:border-accent"
+              >
+                <span aria-hidden className="relative flex h-11 w-20 items-center justify-center">
+                  <span className="h-6 w-16 rounded-full border-2 border-border bg-background shadow-sm transition-colors group-hover:border-accent" />
+                  <span className="absolute -top-1 left-3 h-2 w-2 rounded-full bg-border" />
+                  <span className="absolute -top-1 right-3 h-2 w-2 rounded-full bg-border" />
+                  <span className="absolute -bottom-1 left-3 h-2 w-2 rounded-full bg-border" />
+                  <span className="absolute -bottom-1 right-3 h-2 w-2 rounded-full bg-border" />
+                </span>
+                <span className="text-xs font-medium">Mesa de reunião</span>
+                <span className="text-[10px] leading-tight text-muted">{data.head.totalFindings} ponto(s) de atenção</span>
+              </button>
 
               <button
                 type="button"
@@ -510,6 +631,53 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
           <Link href="/product-intelligence" className="mt-3 inline-block text-xs underline">
             Ver Product Intelligence
           </Link>
+        </Panel>
+      ) : null}
+
+      {panel?.type === "mission" ? (
+        <Panel title="Missions — Discovery Wing" onClose={() => setPanel(null)}>
+          {data.latestMission ? (
+            <>
+              <p className="text-muted">
+                Alvo: <span className="text-foreground">{data.latestMission.target}</span>
+              </p>
+              <p className="mt-2 text-xs text-muted">
+                Status: <span className="font-medium text-foreground">{data.latestMission.status}</span> ·{" "}
+                {data.latestMission.specialistCount} especialista(s) solicitado(s)
+              </p>
+              <p className="mt-2 text-xs text-muted">Executada em {new Date(data.latestMission.createdAt).toLocaleString("en-US")}</p>
+              <div className="mt-4 flex flex-col gap-1">
+                <Link href={`/test-lab/missions/${data.latestMission.id}`} className="text-xs underline">
+                  Ver detalhes desta mission
+                </Link>
+                <Link href="/product-intelligence#historico" className="text-xs underline">
+                  Ver histórico completo de avaliações
+                </Link>
+              </div>
+            </>
+          ) : (
+            <p className="text-muted">Nenhuma Evaluation Mission foi executada ainda.</p>
+          )}
+        </Panel>
+      ) : null}
+
+      {panel?.type === "findings" ? (
+        <Panel title="Findings — Discovery Wing" onClose={() => setPanel(null)}>
+          {discoveryFindings.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {discoveryFindings.map((f, i) => (
+                <div key={i} className="rounded-md border border-border p-3 text-xs">
+                  <p>{f.text}</p>
+                  <p className="mt-1 text-muted">
+                    Encontrado por: {f.agentNames.join(", ")}
+                    {f.recommendationStatus ? ` · Recommendation: ${f.recommendationStatus}` : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted">Nenhum finding registrado na última avaliação.</p>
+          )}
         </Panel>
       ) : null}
 

@@ -85,6 +85,16 @@ body {
   color: var(--muted);
 }
 
+/* FASE 9E — the short, permanent caption naming what real question a Campus
+   building answers, shown right under its nameplate. Never the only signal
+   (the building's own aria-label always states the same thing), just the
+   always-visible reinforcement the Fase 9E spec asks for instead of hover. */
+.qg-room-hint {
+  margin: 0 0 0.75rem;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 /* The thin "desk edge" beneath an agent's monitor, standing in for the desk
    surface itself. */
 .qg-desk-surface {

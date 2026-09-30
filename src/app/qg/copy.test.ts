@@ -44,8 +44,10 @@ describe("LAB QG office", () => {
 
   // FASE 9C — Recommendation cmung3g6b0005i67dqjuoocyf (new-user): a first-
   // time visitor had no sentence explaining what LAB QG is or what to do.
+  // FASE 9E replaced the "escritório" metaphor with the "campus" one — the
+  // explanatory sentence still exists, right under the title, just updated.
   it("explains what LAB QG is to a first-time visitor, right under the title", () => {
-    expect(officeSource).toMatch(/O escritório visual do LAB/);
+    expect(officeSource).toMatch(/O campus visual do LAB/);
   });
 
   // FASE 9C — Recommendation cmung3g6b0006i67di76wvi4v (ux-agent): count
@@ -83,7 +85,11 @@ describe("LAB QG office", () => {
     expect(officeSource).toMatch(/data-count=\{badge\}/);
     expect(officeSource).toMatch(/data-count=\{data\.pendingCount\}/);
     expect(officeSource).toMatch(/data-count=\{data\.approvedCount\}/);
-    expect(officeSource.match(/qg-decorative-count/g)?.length).toBe(3);
+    // FASE 9E added a fourth decorative badge (Discovery Wing's Findings
+    // count), following the exact same aria-hidden + data-count + CSS
+    // generated-content pattern as the original three.
+    expect(officeSource).toMatch(/data-count=\{discoveryFindings\.length\}/);
+    expect(officeSource.match(/qg-decorative-count/g)?.length).toBe(4);
     // The visible, labeled counts underneath each station are untouched.
     expect(globalsCssSource).toMatch(/\.qg-decorative-count::before\s*\{\s*content:\s*attr\(data-count\);?\s*\}/);
   });
