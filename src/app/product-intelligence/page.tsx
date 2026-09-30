@@ -191,7 +191,7 @@ export default async function ProductIntelligencePage() {
           </section>
         ) : null}
 
-        <section>
+        <section id="historico">
           <p className="text-sm font-medium">Histórico</p>
           <div className="mt-3 flex flex-col gap-3">
             {missionRuns.length === 0 ? (

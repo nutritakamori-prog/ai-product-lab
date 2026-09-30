@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test-lab:round": "tsx scripts/run-test-round.ts",
+    "qg:e2e": "tsx scripts/qg-playwright-check.ts",
     "security:check": "bash scripts/security-check.sh"
   },
   "dependencies": {

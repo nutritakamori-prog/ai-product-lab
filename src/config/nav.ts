@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { LayoutGrid, FolderKanban, Bot, FlaskConical, Settings, Sparkles } from "lucide-react";
+import { LayoutGrid, FolderKanban, Bot, FlaskConical, Settings, Sparkles, Building2 } from "lucide-react";
 
 export interface NavItem {
   label: string;
@@ -8,6 +8,7 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
+  { label: "LAB QG", href: "/qg", icon: Building2 },
   { label: "Product Intelligence", href: "/product-intelligence", icon: Sparkles },
   { label: "Dashboard", href: "/", icon: LayoutGrid },
   { label: "Projects", href: "/projects", icon: FolderKanban },
