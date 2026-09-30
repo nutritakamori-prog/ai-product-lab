@@ -36,3 +36,11 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
+
+/* Renders a decorative count via CSS generated content instead of a real text
+   node, so it doesn't show up as a redundant bare number in getText()/
+   textContent/innerText extractions — only the labeled count next to it does.
+   aria-hidden stays on the element as defense in depth for assistive tech. */
+.qg-decorative-count::before {
+  content: attr(data-count);
+}

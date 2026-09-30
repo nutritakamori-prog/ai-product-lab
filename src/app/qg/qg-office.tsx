@@ -82,6 +82,7 @@ function Station({
   icon,
   className = "",
   badge,
+  badgeLabel,
   onClick,
   ariaLabel,
 }: {
@@ -89,6 +90,8 @@ function Station({
   icon: React.ReactNode;
   className?: string;
   badge?: number;
+  /** What the badge number means, e.g. "pendente(s)" — always shown as real text next to the count, never left as a bare number. */
+  badgeLabel?: string;
   onClick: () => void;
   ariaLabel: string;
 }) {
@@ -100,14 +103,21 @@ function Station({
       className={`group relative flex flex-col items-center justify-center gap-2 rounded-lg border border-border bg-surface p-4 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:border-accent hover:shadow-md ${className}`}
     >
       {typeof badge === "number" && badge > 0 ? (
-        <span className="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-medium text-white">
-          {badge}
-        </span>
+        <span
+          aria-hidden
+          data-count={badge}
+          className="qg-decorative-count absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-medium text-white"
+        />
       ) : null}
       <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background text-foreground group-hover:border-accent group-hover:text-accent">
         {icon}
       </span>
       <span className="text-xs font-medium leading-tight">{label}</span>
+      {typeof badge === "number" && badge > 0 && badgeLabel ? (
+        <span className="text-[10px] leading-tight text-muted">
+          {badge} {badgeLabel}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -122,17 +132,23 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="flex items-center gap-1.5 text-xs text-muted underline-offset-2 hover:underline">
-            <ArrowLeft size={14} />
-            Voltar ao LAB
-          </Link>
-          <span className="text-border">·</span>
-          <h1 className="text-[15px] font-semibold tracking-tight">LAB QG</h1>
-          <span className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-xs">
-            <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[data.globalStatus]}`} aria-hidden />
-            {data.globalStatusLabel}
-          </span>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-1.5 text-xs text-muted underline-offset-2 hover:underline">
+              <ArrowLeft size={14} />
+              Voltar ao LAB
+            </Link>
+            <span className="text-border">·</span>
+            <h1 className="text-[15px] font-semibold tracking-tight">LAB QG</h1>
+            <span className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-xs">
+              <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[data.globalStatus]}`} aria-hidden />
+              {data.globalStatusLabel}
+            </span>
+          </div>
+          <p className="text-xs text-muted">
+            O escritório visual do LAB — clique em uma estação para ver o estado real de cada especialista, decidir
+            Recommendations pendentes ou abrir Product Intelligence e Test Lab.
+          </p>
         </div>
 
         <nav className="flex flex-wrap items-center gap-2 text-xs">
@@ -205,6 +221,7 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                 ariaLabel="Estação do Head — ver consolidação e recomendação principal"
                 onClick={() => setPanel({ type: "head" })}
                 badge={data.head.pendingCount}
+                badgeLabel="pendente(s)"
               />
               <Link
                 href="/product-intelligence#historico"
@@ -249,14 +266,19 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                   aria-label={`Quadro — Product Intelligence (${data.pendingCount} pendente(s))`}
                 >
                   {data.pendingCount > 0 ? (
-                    <span className="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-medium text-white">
-                      {data.pendingCount}
-                    </span>
+                    <span
+                      aria-hidden
+                      data-count={data.pendingCount}
+                      className="qg-decorative-count absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-medium text-white"
+                    />
                   ) : null}
                   <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent group-hover:text-accent">
                     <ClipboardList size={18} />
                   </span>
                   <span className="text-xs font-medium">Quadro · Product Intelligence</span>
+                  {data.pendingCount > 0 ? (
+                    <span className="text-[10px] leading-tight text-muted">{data.pendingCount} pendente(s)</span>
+                  ) : null}
                 </Link>
 
                 <Link
@@ -265,14 +287,19 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                   aria-label={`Implementation — ${data.approvedCount} tarefa(s) aprovada(s)`}
                 >
                   {data.approvedCount > 0 ? (
-                    <span className="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[11px] font-medium text-white">
-                      {data.approvedCount}
-                    </span>
+                    <span
+                      aria-hidden
+                      data-count={data.approvedCount}
+                      className="qg-decorative-count absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[11px] font-medium text-white"
+                    />
                   ) : null}
                   <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent group-hover:text-accent">
                     <Wrench size={18} />
                   </span>
                   <span className="text-xs font-medium">Implementation</span>
+                  {data.approvedCount > 0 ? (
+                    <span className="text-[10px] leading-tight text-muted">{data.approvedCount} aprovada(s)</span>
+                  ) : null}
                 </Link>
 
                 <Link
