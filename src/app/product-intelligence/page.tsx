@@ -140,7 +140,7 @@ export default async function ProductIntelligencePage() {
               const coverageEntry = latestReport?.coverage.find((c) => c.agentId === agent.id);
               const lastStatus = coverageEntry
                 ? `${coverageEntry.status}${coverageEntry.output ? ` · ${coverageEntry.output.status}` : ""}`
-                : "—";
+                : "Não participou da última avaliação";
               return (
                 <li key={agent.id} className="flex items-center justify-between px-4 py-3">
                   <div>

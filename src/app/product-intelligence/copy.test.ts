@@ -38,6 +38,11 @@ describe("Product Intelligence page copy", () => {
     expect(piPage).toContain("/task");
     expect(recommendationDetailPage).toContain("/task");
   });
+
+  it("labels a specialist who didn't take part in the latest run explicitly, instead of a bare dash", () => {
+    expect(piPage).toContain("Não participou da última avaliação");
+    expect(piPage).not.toMatch(/:\s*"—";/);
+  });
 });
 
 describe("Implementation Task page", () => {
