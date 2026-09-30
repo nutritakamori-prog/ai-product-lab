@@ -32,6 +32,10 @@ export default async function ProjectsPage() {
                       {project.description ? (
                         <p className="mt-0.5 text-sm text-muted">{project.description}</p>
                       ) : null}
+                      {/* Two projects can share the same name and description (Recommendation
+                          cmuo9qnvl0009167dov1h8x6e) — createdAt is already returned by
+                          listProjects() and is the one field guaranteed to actually differ. */}
+                      <p className="mt-0.5 text-xs text-muted">Created {project.createdAt.toLocaleString("en-US")}</p>
                     </div>
                     <span className="rounded-full border border-border px-2.5 py-0.5 text-xs text-muted">
                       {project.mode}

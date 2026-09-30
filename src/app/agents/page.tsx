@@ -9,10 +9,7 @@ export default async function AgentsPage() {
 
   return (
     <>
-      <PageHeader
-        title="Agents"
-        description="The agent library. Most categories are still empty — Phase 5 fills them in one reviewed agent at a time."
-      />
+      <PageHeader title="Agents" description="The agent library — every specialist the LAB can call on for an evaluation." />
       <div className="px-8 py-8">
         {agents.length === 0 ? (
           <EmptyState
