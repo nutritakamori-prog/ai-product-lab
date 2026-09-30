@@ -64,9 +64,66 @@ body {
    (see .qg-room-label) since they're furniture, not rooms. */
 .qg-room {
   position: relative;
+  /* FASE 9E.2 Bloco A — every building sits above the circulation paths
+     (see .qg-path) in its own local stacking context, so a path segment
+     that geometrically reaches into a building's box is genuinely painted
+     over and disappears behind that wall, instead of floating on top of it. */
+  z-index: 1;
   border: 2px solid var(--border);
   border-radius: 0.75rem;
   background-color: var(--surface);
+  /* FASE 9E.1 — a very subtle lift off the floor so a building reads as a
+     volume sitting on the plan instead of a flat line-drawing rectangle.
+     Kept small on purpose: this is structural depth, not a UI "card". */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* FASE 9E.1 — the Command Center is the one building with top-level visual
+   hierarchy (see Room's size="lg"): a visibly stronger elevation than every
+   other building, reinforcing "this is the dominant volume" purely through
+   depth, never through a bigger or louder color. */
+.qg-room-command {
+  box-shadow: 0 6px 20px rgba(0, 113, 227, 0.1);
+}
+
+/* FASE 9E.2 Bloco A — a very soft halo behind the Command Center only,
+   marking it as the Campus's illuminated core. Purely decorative (behind
+   the room's own opaque background, so it never affects legibility of its
+   content) — the existing --accent token at very low opacity, no new
+   color, no glow/neon: it should be barely noticeable up close and only
+   read as "this building feels lit" at a glance. */
+.qg-room-command::before {
+  content: "";
+  position: absolute;
+  inset: -2.5rem;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(closest-side, rgba(0, 113, 227, 0.08), transparent 70%);
+  pointer-events: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qg-room-command::before {
+    background: radial-gradient(closest-side, rgba(41, 151, 255, 0.14), transparent 70%);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .qg-room {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  }
+  .qg-room-command {
+    box-shadow: 0 6px 24px rgba(41, 151, 255, 0.18);
+  }
+}
+
+/* FASE 9E.1 — a small platform under an Agent Wing station, distinguishing
+   it as its own workstation rather than an icon floating in a bare grid
+   cell. Deliberately not used for the Head (its Command Center room already
+   carries that distinction). */
+.qg-desk-surface-bay {
+  background-color: var(--background);
+  border: 1px solid var(--border);
 }
 
 /* The small plaque naming an actual room on the floor plan. */
@@ -83,6 +140,203 @@ body {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+/* FASE 9E.1 — a short, visibly-real segment of circulation connecting two
+   buildings on the Campus plan. Previously a 1px solid line in the same
+   pale --border tone as the floor grid itself, which made it disappear in
+   the real rendering (see Fase 9E.1's before screenshot) — this is the
+   fix: a slightly thicker dashed line (reads as a path, not a stray rule)
+   with a small round junction node at each end where it touches a
+   building's wall, so the connection is perceptible without clicking.
+   Still pure CSS, no motion, monochrome. */
+.qg-path {
+  position: relative;
+  /* FASE 9E.2 Bloco A — below every building's own z-index: 1 (see
+     .qg-room), so the stub spans below genuinely go "behind the wall"
+     instead of drawing on top of it. */
+  z-index: 0;
+  width: 2px;
+  height: 24px;
+  margin: 0 auto;
+  background-image: linear-gradient(var(--border), var(--border));
+  background-size: 2px 7px;
+  background-repeat: repeat-y;
+}
+
+.qg-path::before,
+.qg-path::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background-color: var(--muted);
+}
+
+.qg-path::before {
+  top: -3px;
+}
+
+.qg-path::after {
+  bottom: -3px;
+}
+
+/* FASE 9E.2 Bloco A — the part of the conduit that actually disappears
+   behind a building's wall. Deliberately longer than the gap between two
+   buildings is ever expected to be, so it reliably reaches into the
+   neighboring building's own box and gets painted over there (z-index: 1
+   on .qg-room beats this element's parent .qg-path at z-index: 0) — the
+   junction dot (.qg-path::before/::after) stays outside that overlap, so
+   it's always visible right where the path meets the wall. */
+.qg-path-stub {
+  position: absolute;
+  left: 50%;
+  width: 2px;
+  height: 18px;
+  transform: translateX(-50%);
+  background-image: linear-gradient(var(--border), var(--border));
+  background-size: 2px 7px;
+  background-repeat: repeat-y;
+}
+
+.qg-path-stub-top {
+  top: -18px;
+}
+
+.qg-path-stub-bottom {
+  bottom: -18px;
+}
+
+/* FASE 9E.2 Bloco A — the Campus as one deliberate plan instead of a
+   sequence of blocks stacked "because they're next in the list". Mobile
+   (and any narrow container — see .qg-floor's container-type) gets a
+   single column, preserving the exact required reading order. Once the
+   floor is genuinely wide enough, Agent Wing pairs with Discovery Wing and
+   Workshop pairs with Test Lab as real visual pairs, and Archive moves off
+   the main "command → agent/discovery → intelligence → workshop/test"
+   spine entirely, sharing a row with the peripheral tools instead — no
+   path connector ever leads to it (see the JSX: there is no PathConnector
+   between the workshop/testlab row and archive/tools). */
+.qg-plan {
+  display: grid;
+  /* minmax(0, 1fr), not plain 1fr — a grid item's implicit min-width is its
+     own content's natural size, which would otherwise force this track
+     (and the floor around it) wider than the viewport on mobile instead of
+     actually wrapping/truncating that content. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.625rem;
+  grid-template-areas:
+    "command"
+    "path-a"
+    "cycle"
+    "agent"
+    "discovery"
+    "path-b"
+    "intelligence"
+    "path-c"
+    "workshop"
+    "testlab"
+    "archive"
+    "tools";
+}
+
+@container (min-width: 56rem) {
+  .qg-plan {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "command      command"
+      "path-a       path-a"
+      "cycle        cycle"
+      "agent        discovery"
+      "path-b       path-b"
+      "intelligence intelligence"
+      "path-c       path-c"
+      "workshop     testlab"
+      "archive      tools";
+  }
+}
+
+/* ============================================================
+   FASE 9E.2 Bloco B — per-building visual identity.
+   Every rule below is purely additive on top of the Bloco A structure
+   (.qg-plan / .qg-room / .qg-path never change here): each class only adds
+   a background pattern, a pseudo-element, or a border to an element that
+   Bloco A already placed and sized. All patterns use only existing tokens
+   (--border, --surface, --background, --accent, --muted), so light/dark
+   mode both work with zero extra rules, nothing animates so
+   prefers-reduced-motion needs no new override, and nothing depends on an
+   external image/font.
+   ============================================================ */
+
+/* DISCOVERY WING — investigation/exploration: a faint dot-grid instead of
+   the plain surface fill, reading as a "signal board" collecting scattered
+   data points, distinct from every other building's flat fill. */
+.qg-room-discovery {
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+/* INTELLIGENCE CENTER — synthesis/depth: two faint panels stacked behind
+   the real one (offset, lower opacity), reading as "information being
+   layered and cross-referenced" without any shadow or gradient effect —
+   just two more of the same flat, bordered surfaces peeking out behind. */
+.qg-room-intelligence::before,
+.qg-room-intelligence::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--border);
+  border-radius: 0.75rem;
+  background-color: var(--surface);
+  z-index: -1;
+}
+
+.qg-room-intelligence::before {
+  transform: translate(4px, 4px);
+  opacity: 0.6;
+}
+
+.qg-room-intelligence::after {
+  transform: translate(8px, 8px);
+  opacity: 0.35;
+}
+
+/* AGENT WING — an operational wing/bay: the 7 stations sit inside a rail
+   (dashed top/bottom border), reading as one shared bench rather than a
+   loose grid of unrelated icons. The stations themselves are untouched. */
+.qg-agent-grid {
+  padding-block: 0.625rem;
+  border-block: 1px dashed var(--border);
+}
+
+/* WORKSHOP — a workbench: a thin ruled strip along the bottom edge, like
+   tick marks on a work surface, instead of a flat fill. */
+.qg-room-workshop {
+  background-image: repeating-linear-gradient(90deg, var(--border) 0, var(--border) 1px, transparent 1px, transparent 8px);
+  background-repeat: repeat-x;
+  background-position: bottom;
+  background-size: 8px 6px;
+}
+
+/* TEST LAB — a modular test grid: small, even cells instead of Workshop's
+   linear ticks or the floor's own larger 28px grid, reading as "many small
+   verifications" rather than "one continuous surface". */
+.qg-room-testlab {
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 10px 10px;
+}
+
+/* ARCHIVE — memory/record: thin horizontal ledger lines instead of a flat
+   fill, reading as stacked pages/registries — quieter than every
+   operational building, matching its already-reduced scale and opacity
+   from Bloco A. */
+.qg-room-archive {
+  background-image: repeating-linear-gradient(var(--background) 0, var(--background) 7px, var(--border) 7px, var(--border) 8px);
 }
 
 /* FASE 9E — the short, permanent caption naming what real question a Campus

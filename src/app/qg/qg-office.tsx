@@ -165,6 +165,7 @@ function Desk({
   badgeLabel,
   onClick,
   ariaLabel,
+  surface = false,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -180,6 +181,8 @@ function Desk({
   badgeLabel?: string;
   onClick: () => void;
   ariaLabel: string;
+  /** FASE 9E.1 — gives the whole desk its own small platform (a faint bounded surface) instead of just the monitor, so a row of agents reads as individual workstations rather than icons floating in a bare grid. Never used for the Head, whose Command Center room already carries that distinction. */
+  surface?: boolean;
 }) {
   const isHead = variant === "head";
   return (
@@ -189,7 +192,7 @@ function Desk({
       aria-label={ariaLabel}
       className={`group relative flex rounded-lg p-3 transition-transform hover:-translate-y-0.5 ${
         isHead ? "flex-row items-center gap-4 text-left" : "flex-col items-center gap-1.5 text-center"
-      } ${className}`}
+      } ${surface ? "qg-desk-surface-bay" : ""} ${className}`}
     >
       {typeof badge === "number" && badge > 0 ? (
         <span
@@ -200,7 +203,7 @@ function Desk({
       ) : null}
       <span
         className={`relative flex shrink-0 items-center justify-center rounded-md border-2 bg-background shadow-sm transition-colors group-hover:border-accent ${stateRing} ${
-          isHead ? "h-14 w-14" : "h-11 w-14"
+          isHead ? "h-16 w-16" : "h-11 w-14"
         } ${inactive ? "opacity-45" : ""}`}
       >
         {icon}
@@ -209,9 +212,9 @@ function Desk({
         ) : null}
       </span>
       {!isHead ? <span aria-hidden className="qg-desk-surface w-10" /> : null}
-      <span className={`flex min-w-0 flex-col ${isHead ? "gap-0.5" : "items-center gap-0.5"}`}>
-        <span className={isHead ? "text-sm font-semibold" : "text-xs font-medium leading-tight"}>{label}</span>
-        {isHead && summary ? <span className="truncate text-xs text-muted">{summary}</span> : null}
+      <span className={`flex min-w-0 flex-col ${isHead ? "gap-1" : "items-center gap-0.5"}`}>
+        <span className={isHead ? "text-base font-semibold" : "text-xs font-medium leading-tight"}>{label}</span>
+        {isHead && summary ? <span className="truncate text-sm text-muted">{summary}</span> : null}
         {typeof badge === "number" && badge > 0 && badgeLabel ? (
           <span className="text-[10px] leading-tight text-muted">
             {badge} {badgeLabel}
@@ -234,16 +237,26 @@ function Room({
   hint,
   accent = false,
   size = "md",
+  area,
+  className = "",
   children,
 }: {
   label: string;
   hint?: string;
   accent?: boolean;
-  size?: "md" | "lg";
+  /** "sm" — FASE 9 final hierarchy adjustment: the same reduced padding Workshop/Test Lab already use, so a building reads as belonging to the operational tier instead of the strategic one. */
+  size?: "sm" | "md" | "lg";
+  /** FASE 9E.2 Bloco A — which named area of `.qg-plan` this building occupies. */
+  area: string;
+  /** FASE 9E.2 Bloco B — an optional per-building identity class (e.g. "qg-room-discovery"), purely visual, never touching layout/placement. */
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className={`qg-room ${size === "lg" ? "p-5 sm:p-6" : "p-4 sm:p-5"} ${accent ? "border-accent/50 bg-accent/[0.05]" : ""}`}>
+    <div
+      className={`qg-room ${size === "lg" ? "qg-room-command p-6 sm:p-8" : size === "sm" ? "p-3" : "p-4 sm:p-5"} ${accent ? "border-accent/60 bg-accent/[0.07]" : ""} ${className}`}
+      style={{ gridArea: area }}
+    >
       <span className={`qg-room-label ${accent ? "border-accent/50 text-accent" : ""}`}>{label}</span>
       {hint ? <p className="qg-room-hint">{hint}</p> : null}
       {children}
@@ -251,9 +264,24 @@ function Room({
   );
 }
 
-/** A short segment of visible circulation between two buildings on the Campus — purely structural, no motion. */
-function PathConnector() {
-  return <div aria-hidden className="mx-auto my-4 h-5 w-px bg-border" />;
+/**
+ * FASE 9E.2 Bloco A — a segment of circulation between two buildings on the
+ * Campus plan, occupying its own named grid area. The visible dashed core
+ * sits in the gap between buildings; the two `qg-path-stub` spans extend
+ * further than the gap on purpose, so they geometrically reach into the
+ * neighboring buildings' own boxes — `.qg-room` sits at a higher z-index
+ * (see globals.css) than `.qg-path`, so wherever a stub overlaps a real
+ * building it is genuinely painted over and disappears behind that wall,
+ * rather than just being a short line floating in empty space. Purely
+ * structural, no motion.
+ */
+function PathConnector({ area }: { area: string }) {
+  return (
+    <div aria-hidden className="qg-path" style={{ gridArea: area }}>
+      <span className="qg-path-stub qg-path-stub-top" />
+      <span className="qg-path-stub qg-path-stub-bottom" />
+    </div>
+  );
 }
 
 export function QgOffice({ data }: { data: QgOfficeData }) {
@@ -327,7 +355,7 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
       <div className="relative flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto p-6">
           <div
-            className="qg-floor mx-auto max-w-5xl origin-top rounded-2xl border border-border p-5 shadow-sm transition-transform sm:min-w-[600px] sm:p-8"
+            className="qg-floor @container mx-auto max-w-5xl origin-top rounded-2xl border border-border p-5 shadow-sm transition-transform sm:p-8"
             style={{ transform: `scale(${zoom})` }}
           >
             <div className="mb-5 flex items-center justify-between gap-3">
@@ -353,36 +381,39 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
               </button>
             </div>
 
-            <Room label="Command Center" hint="Coordenação — o que está acontecendo com o produto?" accent size="lg">
-              <Desk
-                variant="head"
-                label="Head"
-                icon={<Sparkles size={20} className="text-accent" />}
-                summary={data.head.summary ?? "Aguardando síntese da equipe."}
-                stateRing="border-accent/60"
-                className="w-full"
-                badge={data.head.pendingCount}
-                // FASE 9D-1 — Recommendation cmuo3lmqg00061m7dsfes8yje: the
-                // summary line right above this badge only ever describes the
-                // LATEST run, but pendingCount is a running total that can
-                // include Recommendations left PENDING from earlier runs —
-                // "no total" disambiguates that without claiming they're
-                // necessarily all from earlier runs (a fresh run can also
-                // leave its own findings PENDING).
-                badgeLabel="pendente(s) no total"
-                ariaLabel="Command Center — Head — ver consolidação e recomendação principal"
-                onClick={() => setPanel({ type: "head" })}
-              />
-            </Room>
+            <div className="qg-plan">
+              <Room area="command" label="Command Center" hint="Coordenação — o que está acontecendo com o produto?" accent size="lg">
+                <Desk
+                  variant="head"
+                  label="Head"
+                  icon={<Sparkles size={24} className="text-accent" />}
+                  summary={data.head.summary ?? "Aguardando síntese da equipe."}
+                  stateRing="border-accent/60"
+                  className="w-full"
+                  badge={data.head.pendingCount}
+                  // FASE 9D-1 — Recommendation cmuo3lmqg00061m7dsfes8yje: the
+                  // summary line right above this badge only ever describes the
+                  // LATEST run, but pendingCount is a running total that can
+                  // include Recommendations left PENDING from earlier runs —
+                  // "no total" disambiguates that without claiming they're
+                  // necessarily all from earlier runs (a fresh run can also
+                  // leave its own findings PENDING).
+                  badgeLabel="pendente(s) no total"
+                  ariaLabel="Command Center — Head — ver consolidação e recomendação principal"
+                  onClick={() => setPanel({ type: "head" })}
+                />
+              </Room>
 
-            <PathConnector />
-            <p className="mb-4 text-center text-[10px] font-semibold uppercase tracking-wide text-muted">
-              Investigate → Find → Decide → Build → Test → Learn
-            </p>
+              <PathConnector area="path-a" />
+              <p
+                style={{ gridArea: "cycle" }}
+                className="text-center text-[10px] font-semibold uppercase tracking-wide text-muted"
+              >
+                Discover → Interpret → Evaluate → Build → Validate → Learn
+              </p>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Room label="Agent Wing" hint="Investigar — quem está trabalhando?">
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Room area="agent" label="Agent Wing" hint="Investigar — quem está trabalhando?" size="sm">
+                <div className="qg-agent-grid grid grid-cols-1 gap-3 @sm:grid-cols-2 @2xl:grid-cols-4">
                   {data.stations.map((agent) => (
                     <Desk
                       key={agent.id}
@@ -393,13 +424,19 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                       inactive={STATE_INACTIVE[agent.state]}
                       ariaLabel={`${agent.name} — ${agent.stateLabel}`}
                       onClick={() => setPanel({ type: "agent", agentId: agent.id })}
+                      surface
                     />
                   ))}
                 </div>
               </Room>
 
-              <Room label="Discovery Wing" hint="Descobrir — o que estamos investigando e o que encontramos?">
-                <div className="grid grid-cols-2 gap-2">
+              <Room
+                area="discovery"
+                label="Discovery Wing"
+                hint="Descobrir — o que estamos investigando e o que encontramos?"
+                className="qg-room-discovery"
+              >
+                <div className="grid grid-cols-1 gap-2 @sm:grid-cols-2">
                   <button
                     type="button"
                     onClick={() => setPanel({ type: "mission" })}
@@ -442,42 +479,46 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                   </button>
                 </div>
               </Room>
-            </div>
 
-            <PathConnector />
+              <PathConnector area="path-b" />
 
-            <Room label="Intelligence Center" hint="Decidir — o que aprendemos e o que podemos melhorar?">
-              <Link
-                href="/product-intelligence"
-                className="group relative flex flex-col items-center gap-2 rounded-lg p-3 text-center transition-transform hover:-translate-y-0.5"
-                aria-label={`Product Intelligence e Recommendations — ${data.pendingCount} pendente(s)`}
+              <Room
+                area="intelligence"
+                label="Intelligence Center"
+                hint="Decidir — o que aprendemos e o que podemos melhorar?"
+                className="qg-room-intelligence"
               >
-                {data.pendingCount > 0 ? (
-                  <span
-                    aria-hidden
-                    data-count={data.pendingCount}
-                    className="qg-decorative-count absolute right-[calc(50%-36px)] top-0 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-medium text-white"
-                  />
-                ) : null}
-                <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
-                  <ClipboardList size={18} />
-                </span>
-                <span className="text-xs font-medium">Product Intelligence · Recommendations</span>
-                <span className="flex flex-col text-[10px] leading-tight text-muted">
-                  {data.pendingCount > 0 ? <span>{data.pendingCount} pendente(s)</span> : null}
-                  <span>
-                    {data.approvedCount} aprovada(s) · {data.ignoredCount} ignorada(s)
+                <Link
+                  href="/product-intelligence"
+                  className="group relative flex flex-col items-center gap-2 rounded-lg p-3 text-center transition-transform hover:-translate-y-0.5"
+                  aria-label={`Product Intelligence e Recommendations — ${data.pendingCount} pendente(s)`}
+                >
+                  {data.pendingCount > 0 ? (
+                    <span
+                      aria-hidden
+                      data-count={data.pendingCount}
+                      className="qg-decorative-count absolute right-[calc(50%-36px)] top-0 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-medium text-white"
+                    />
+                  ) : null}
+                  <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
+                    <ClipboardList size={18} />
                   </span>
-                </span>
-              </Link>
-            </Room>
+                  <span className="text-xs font-medium">Product Intelligence · Recommendations</span>
+                  <span className="flex flex-col text-[10px] leading-tight text-muted">
+                    {data.pendingCount > 0 ? <span>{data.pendingCount} pendente(s)</span> : null}
+                    <span>
+                      {data.approvedCount} aprovada(s) · {data.ignoredCount} ignorada(s)
+                    </span>
+                  </span>
+                </Link>
+              </Room>
 
-            <PathConnector />
+              <PathConnector area="path-c" />
 
-            <div className="grid gap-4 sm:grid-cols-2">
               <Link
                 href="/product-intelligence"
-                className="qg-room group relative flex flex-col items-center justify-center gap-2 p-4 text-center transition-colors hover:border-accent"
+                style={{ gridArea: "workshop" }}
+                className="qg-room qg-room-workshop group relative flex flex-col items-center justify-center gap-2 p-3 text-center transition-colors hover:border-accent"
                 aria-label={`Workshop — Implementation — ${data.approvedCount} tarefa(s) aprovada(s)`}
               >
                 <span className="qg-room-label">Workshop</span>
@@ -494,8 +535,8 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                   <span className="h-1 w-1 rounded-full bg-amber-400" />
                   <span className="h-1 w-1 rounded-full bg-emerald-400" />
                 </span>
-                <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
-                  <Wrench size={18} />
+                <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
+                  <Wrench size={17} />
                 </span>
                 <span className="text-xs font-medium">Implementation</span>
                 {data.approvedCount > 0 ? <span className="text-[10px] leading-tight text-muted">{data.approvedCount} aprovada(s)</span> : null}
@@ -503,7 +544,8 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
 
               <Link
                 href="/test-lab"
-                className="qg-room group flex flex-col items-center justify-center gap-2 p-4 text-center transition-colors hover:border-accent"
+                style={{ gridArea: "testlab" }}
+                className="qg-room qg-room-testlab group flex flex-col items-center justify-center gap-2 p-3 text-center transition-colors hover:border-accent"
                 aria-label="Test Lab — validação"
               >
                 <span className="qg-room-label">Test Lab</span>
@@ -513,17 +555,16 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                   <span className="h-3 w-4 rounded-sm border border-border bg-background" />
                   <span className="h-3 w-4 rounded-sm border border-border bg-background" />
                 </span>
-                <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
-                  <FlaskConical size={18} />
+                <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
+                  <FlaskConical size={17} />
                 </span>
                 <span className="text-xs font-medium">Retest · Test Lab</span>
               </Link>
-            </div>
 
-            <div className="mt-8 flex justify-center sm:justify-start">
               <Link
                 href="/product-intelligence#historico"
-                className="qg-room group flex w-full max-w-[220px] flex-col items-center gap-2 p-3 text-center opacity-90 transition-colors hover:border-accent hover:opacity-100"
+                style={{ gridArea: "archive" }}
+                className="qg-room qg-room-archive group mx-auto flex w-full max-w-[220px] flex-col items-center gap-2 p-3 text-center opacity-90 transition-colors hover:border-accent hover:opacity-100 @sm:mx-0"
                 aria-label={`Archive — histórico de avaliações (${data.missionHistoryCount})`}
               >
                 <span className="qg-room-label">Archive</span>
@@ -535,44 +576,46 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                 <span className="text-xs font-medium">Arquivo</span>
                 <span className="text-[10px] leading-tight text-muted">{data.missionHistoryCount} avaliação(ões) registrada(s)</span>
               </Link>
-            </div>
 
-            <p className="mb-2 mt-8 text-[10px] font-semibold uppercase tracking-wide text-muted">Outras ferramentas</p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setPanel({ type: "meeting" })}
-                aria-label="Mesa de reunião — ver visão consolidada da equipe"
-                className="qg-room group flex flex-col items-center justify-center gap-3 p-4 text-center transition-colors hover:border-accent"
-              >
-                <span aria-hidden className="relative flex h-11 w-20 items-center justify-center">
-                  <span className="h-6 w-16 rounded-full border-2 border-border bg-background shadow-sm transition-colors group-hover:border-accent" />
-                  <span className="absolute -top-1 left-3 h-2 w-2 rounded-full bg-border" />
-                  <span className="absolute -top-1 right-3 h-2 w-2 rounded-full bg-border" />
-                  <span className="absolute -bottom-1 left-3 h-2 w-2 rounded-full bg-border" />
-                  <span className="absolute -bottom-1 right-3 h-2 w-2 rounded-full bg-border" />
-                </span>
-                <span className="text-xs font-medium">Mesa de reunião</span>
-                <span className="text-[10px] leading-tight text-muted">{data.head.totalFindings} ponto(s) de atenção</span>
-              </button>
+              <div style={{ gridArea: "tools" }}>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Outras ferramentas</p>
+                <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setPanel({ type: "meeting" })}
+                    aria-label="Mesa de reunião — ver visão consolidada da equipe"
+                    className="qg-room group flex flex-col items-center justify-center gap-3 p-4 text-center transition-colors hover:border-accent"
+                  >
+                    <span aria-hidden className="relative flex h-11 w-20 items-center justify-center">
+                      <span className="h-6 w-16 rounded-full border-2 border-border bg-background shadow-sm transition-colors group-hover:border-accent" />
+                      <span className="absolute -top-1 left-3 h-2 w-2 rounded-full bg-border" />
+                      <span className="absolute -top-1 right-3 h-2 w-2 rounded-full bg-border" />
+                      <span className="absolute -bottom-1 left-3 h-2 w-2 rounded-full bg-border" />
+                      <span className="absolute -bottom-1 right-3 h-2 w-2 rounded-full bg-border" />
+                    </span>
+                    <span className="text-xs font-medium">Mesa de reunião</span>
+                    <span className="text-[10px] leading-tight text-muted">{data.head.totalFindings} ponto(s) de atenção</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => setPanel({ type: "reports" })}
-                className="qg-room group flex flex-col items-center justify-center gap-2 p-4 text-center transition-colors hover:border-accent"
-                aria-label="Relatórios — abrir Weekly Report"
-              >
-                <span aria-hidden className="flex items-end gap-0.5">
-                  <span className="h-2 w-1 rounded-sm bg-border" />
-                  <span className="h-3 w-1 rounded-sm bg-border" />
-                  <span className="h-4 w-1 rounded-sm bg-accent/60" />
-                  <span className="h-2.5 w-1 rounded-sm bg-border" />
-                </span>
-                <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
-                  <FileText size={18} />
-                </span>
-                <span className="text-xs font-medium">Relatórios</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => setPanel({ type: "reports" })}
+                    className="qg-room group flex flex-col items-center justify-center gap-2 p-4 text-center transition-colors hover:border-accent"
+                    aria-label="Relatórios — abrir Weekly Report"
+                  >
+                    <span aria-hidden className="flex items-end gap-0.5">
+                      <span className="h-2 w-1 rounded-sm bg-border" />
+                      <span className="h-3 w-1 rounded-sm bg-border" />
+                      <span className="h-4 w-1 rounded-sm bg-accent/60" />
+                      <span className="h-2.5 w-1 rounded-sm bg-border" />
+                    </span>
+                    <span className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background group-hover:border-accent">
+                      <FileText size={18} />
+                    </span>
+                    <span className="text-xs font-medium">Relatórios</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
