@@ -61,7 +61,7 @@ const STATUS_DOT: Record<GlobalQgStatus, string> = {
 /** Visual accent per agent state — never the only signal (the real label is always in the button's aria-label and inside the agent's own panel). */
 const STATE_DOT: Record<AgentQgState, string> = {
   IDLE: "bg-border",
-  WORKING: "bg-accent animate-pulse",
+  WORKING: "bg-accent qg-led-breathe",
   NOT_IN_LATEST_RUN: "bg-border",
   BLOCKED: "bg-amber-500",
   FAILED: "bg-red-500",
@@ -84,6 +84,28 @@ const STATE_RING: Record<AgentQgState, string> = {
   PENDING_DECISION: "border-red-500",
 };
 
+/**
+ * FASE 9D-2, item 1 — purely visual "monitor is off" cue for a specialist
+ * that has no real presence in the current picture (never participated yet,
+ * or wasn't part of the latest run). Every other state means the specialist
+ * actually ran or is running, so its monitor stays visually on. This never
+ * changes what deriveAgentQgState() computes — it's a presentation-only
+ * layer over the same AgentQgState, and the dimmed opacity is only ever a
+ * reinforcement: the real signal stays the button's own aria-label (read
+ * regardless of this) plus STATE_RING/STATE_DOT's existing color coding.
+ */
+const STATE_INACTIVE: Record<AgentQgState, boolean> = {
+  IDLE: true,
+  WORKING: false,
+  NOT_IN_LATEST_RUN: true,
+  BLOCKED: false,
+  FAILED: false,
+  NO_FINDING: false,
+  UNCONFIRMED: false,
+  HAS_FINDING: false,
+  PENDING_DECISION: false,
+};
+
 type PanelState = { type: "agent"; agentId: string } | { type: "head" } | { type: "meeting" } | { type: "reports" } | { type: "clock" } | null;
 
 const ZOOM_MIN = 0.6;
@@ -104,6 +126,7 @@ function Desk({
   summary,
   stateRing = "border-border",
   ledClassName,
+  inactive = false,
   className = "",
   badge,
   badgeLabel,
@@ -116,6 +139,8 @@ function Desk({
   summary?: string | null;
   stateRing?: string;
   ledClassName?: string;
+  /** Purely visual "screen is off" cue (see STATE_INACTIVE) — never the only signal; the real state is always in ariaLabel. */
+  inactive?: boolean;
   className?: string;
   badge?: number;
   /** What the badge number means, e.g. "pendente(s)" — always shown as real text next to the count, never left as a bare number. */
@@ -143,7 +168,7 @@ function Desk({
       <span
         className={`relative flex shrink-0 items-center justify-center rounded-md border-2 bg-background shadow-sm transition-colors group-hover:border-accent ${stateRing} ${
           isHead ? "h-14 w-14" : "h-11 w-14"
-        }`}
+        } ${inactive ? "opacity-45" : ""}`}
       >
         {icon}
         {ledClassName ? (
@@ -302,6 +327,7 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                       icon={<Users size={17} />}
                       stateRing={STATE_RING[agent.state]}
                       ledClassName={STATE_DOT[agent.state]}
+                      inactive={STATE_INACTIVE[agent.state]}
                       ariaLabel={`${agent.name} — ${agent.stateLabel}`}
                       onClick={() => setPanel({ type: "agent", agentId: agent.id })}
                     />

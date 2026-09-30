@@ -19,12 +19,15 @@ export function Panel({ title, onClose, children }: { title: string; onClose: ()
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20 p-4" onClick={onClose}>
+    <div
+      className="qg-panel-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-foreground/20 p-4"
+      onClick={onClose}
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl"
+        className="qg-panel-dialog-in flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">

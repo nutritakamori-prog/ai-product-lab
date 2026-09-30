@@ -92,3 +92,62 @@ body {
   border-radius: 999px;
   background-image: linear-gradient(90deg, transparent, var(--border), transparent);
 }
+
+/* FASE 9D-2, item 2 — a more intentional "breathing" LED for WORKING than
+   Tailwind's default animate-pulse (2s, steeper curve): only ever applied
+   while the underlying AgentQgState is actually WORKING (see STATE_DOT in
+   qg-office.tsx) — CSS-only, no React timer/state. */
+.qg-led-breathe {
+  animation: qg-led-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes qg-led-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* FASE 9D-2, item 3 — a short (~180ms) entrance for the shared Panel so it
+   doesn't just pop in. Both classes are applied unconditionally by
+   panel.tsx; since Panel is mounted fresh on every open (conditional
+   rendering, never kept around hidden), a plain CSS animation fires exactly
+   once per open with no extra React state. Only opacity/transform — never a
+   property that affects layout. */
+.qg-panel-backdrop-in {
+  animation: qg-panel-backdrop-in 180ms ease-out;
+}
+
+.qg-panel-dialog-in {
+  animation: qg-panel-dialog-in 180ms ease-out;
+}
+
+@keyframes qg-panel-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes qg-panel-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+}
+
+/* FASE 9D-2 accessibility requirement — every animation added in this phase
+   is purely decorative reinforcement of a state/transition already
+   communicated in text (aria-label, dialog content, or the existing
+   STATE_RING/STATE_DOT color coding), so turning it off here never removes
+   information: the LED still shows WORKING via its base color, and the
+   Panel still opens instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .qg-led-breathe,
+  .qg-panel-backdrop-in,
+  .qg-panel-dialog-in {
+    animation: none;
+  }
+}
