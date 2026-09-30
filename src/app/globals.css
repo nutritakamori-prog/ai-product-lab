@@ -44,3 +44,51 @@ body {
 .qg-decorative-count::before {
   content: attr(data-count);
 }
+
+/* FASE 9D-1 — LAB QG floor plan. A faint blueprint-style grid (two layered
+   1px lines every 28px, using the existing border token) so the office reads
+   as an actual floor plan instead of a plain dashboard surface. No new color
+   token, no image asset. */
+.qg-floor {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(90deg, var(--border) 1px, transparent 1px),
+    linear-gradient(0deg, var(--border) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* An enclosed "room" of the floor plan (Head, the specialists' area) — a
+   thicker border reads as a wall rather than a flat card edge, setting it
+   apart from the open floor around it. Individual objects/stations on the
+   floor reuse this same class for their own walls, just without a nameplate
+   (see .qg-room-label) since they're furniture, not rooms. */
+.qg-room {
+  position: relative;
+  border: 2px solid var(--border);
+  border-radius: 0.75rem;
+  background-color: var(--surface);
+}
+
+/* The small plaque naming an actual room on the floor plan. */
+.qg-room-label {
+  position: absolute;
+  top: -0.6rem;
+  left: 0.9rem;
+  padding: 0 0.5rem;
+  background-color: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* The thin "desk edge" beneath an agent's monitor, standing in for the desk
+   surface itself. */
+.qg-desk-surface {
+  height: 4px;
+  border-radius: 999px;
+  background-image: linear-gradient(90deg, transparent, var(--border), transparent);
+}
