@@ -73,7 +73,14 @@ function normalize(text: string): string {
  * false — duplicating a finding across two entries is preferred over
  * merging two genuinely different problems into one.
  */
-function isEquivalentFinding(a: { finding: string; evidence: string }, b: { finding: string; evidence: string }): boolean {
+/**
+ * Exported so other pure consolidation logic (e.g. FASE 10's finding-history.ts,
+ * which compares findings ACROSS Evaluation Mission Runs of the same target)
+ * reuses this exact rule instead of a second, parallel implementation.
+ * Behavior is unchanged — this is the same function, just no longer private
+ * to this module.
+ */
+export function isEquivalentFinding(a: { finding: string; evidence: string }, b: { finding: string; evidence: string }): boolean {
   return normalize(a.finding) === normalize(b.finding) && normalize(a.evidence) === normalize(b.evidence);
 }
 
