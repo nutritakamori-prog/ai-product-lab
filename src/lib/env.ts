@@ -17,6 +17,9 @@ const optionalString = z.preprocess(
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   ANTHROPIC_API_KEY: optionalString,
+  // Optional, free-tier alternative to ANTHROPIC_API_KEY — see
+  // src/core/models/provider.ts's getModelProvider() for selection order.
+  GEMINI_API_KEY: optionalString,
 });
 
 export type Env = z.infer<typeof envSchema>;

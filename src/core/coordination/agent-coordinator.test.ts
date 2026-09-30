@@ -408,7 +408,14 @@ describe("coordinateAgentTask — evidence sharing", () => {
 
   it("no needsOtherAgent -> exactly one call total, evidence sharing adds nothing", async () => {
     const { newUser } = await agents();
-    const { provider, calls } = capturingProvider([{ ...NEW_USER_WITH_EVIDENCE, needsOtherAgent: null }]);
+    // NO_FINDING (not FINDING) with needsOtherAgent left null: a FINDING
+    // from a non-QA agent is now deterministically escalated by
+    // run-agent.ts's own rule (see run-agent.ts's deriveNeedsOtherAgent) —
+    // this test is about the case where there's genuinely nothing to
+    // escalate, which evidence alone (without a finding) still is.
+    const { provider, calls } = capturingProvider([
+      { ...NEW_USER_WITH_EVIDENCE, status: "NO_FINDING", finding: null, impact: null, classification: null, needsOtherAgent: null },
+    ]);
     setModelProviderForTesting(provider);
 
     const result = await coordinateAgentTask({ initialAgent: newUser, project, task: "Review something" });

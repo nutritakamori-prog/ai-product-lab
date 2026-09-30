@@ -46,6 +46,12 @@ describe("PlaywrightBrowserAdapter", () => {
     expect(await adapter.getText("#name")).toBe(value);
   });
 
+  it("exists() returns true for a real element and false for one that isn't there — never throwing either way", async () => {
+    await adapter.navigate("/projects");
+    expect(await adapter.exists("form")).toBe(true);
+    expect(await adapter.exists("#this-selector-does-not-exist")).toBe(false);
+  });
+
   it(
     "throws instead of silently succeeding when a selector doesn't exist",
     async () => {

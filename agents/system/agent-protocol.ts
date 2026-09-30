@@ -17,7 +17,17 @@ import { agentOutputBaseSchema, agentOutputSchema, type AgentOutput } from "@/do
 // Re-exported, not redefined — these already exist and are the single
 // source of truth for the categories/tiers used across the whole app
 // (Prisma's AgentType/ModelTier enums mirror these exact string values).
-export const AGENT_CATEGORIES = ["EXPERIENCE", "QA", "DESIGN", "STRATEGY", "ORCHESTRATION"] as const;
+export const AGENT_CATEGORIES = [
+  "EXPERIENCE",
+  "QA",
+  "DESIGN",
+  "STRATEGY",
+  "ORCHESTRATION",
+  "ACCESSIBILITY",
+  "PRODUCT",
+  "PERFORMANCE",
+  "SECURITY",
+] as const;
 export type AgentCategory = (typeof AGENT_CATEGORIES)[number];
 
 export const MODEL_TIERS = ["LOW_COST", "BALANCED", "HIGH_REASONING"] as const;

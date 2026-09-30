@@ -73,12 +73,13 @@ model Project {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   projectAgents ProjectAgent[]
   memory        ProjectMemory?
   designMemory  DesignMemory?
   executions    AgentExecution[]
   testRuns      TestRun[]
+  missionRuns   EvaluationMissionRun[]
 }
 
 // ── Agent registry ──────────────────────────────────────────────────────
@@ -96,6 +97,12 @@ enum AgentType {
   DESIGN
   STRATEGY
   ORCHESTRATION
+  // The four specialists added for the full-team evaluation (Head/Command
+  // Center phase) — same enum, same table, no parallel agent-type system.
+  ACCESSIBILITY
+  PRODUCT
+  PERFORMANCE
+  SECURITY
 }
 
 enum ModelTier {
@@ -152,6 +159,13 @@ enum AgentExecutionStatus {
 // execution is never mistaken for a real one. See docs/DECISIONS.md.
 enum ModelProviderKind {
   ANTHROPIC
+  GEMINI
+  // A manual execution reasoned by Claude Code itself (see
+  // src/core/runtime/run-agent.ts's toProviderKind()) — injected only via
+  // setModelProviderForTesting() for a deliberate, interactive run, never
+  // selected automatically by getModelProvider(). Recorded as its own real
+  // kind so it's never mistaken for MOCK's deterministic, offline stand-in.
+  CLAUDE_CODE
   MOCK
 }
 
@@ -221,6 +235,97 @@ model TestRun {
   agent     Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
   project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   execution AgentExecution? @relation(fields: [executionId], references: [id])
+}
+
+enum EvaluationMissionRunStatus {
+  RUNNING
+  COMPLETED
+  BLOCKED
+  FAILED
+}
+
+/**
+ * The one addition this phase needed: an EvaluationMission (src/domain/evaluation-mission.ts)
+ * was pure data with no persisted identity — every submission through
+ * /test-lab's Evaluation Mission form ran for real (via the already-validated
+ * runMissionEvaluation()) but its result only ever existed for the single
+ * request/response cycle that produced it, gone on refresh. This model gives
+ * a Mission's config and outcome a durable identity, so it can be revisited
+ * by URL and re-run — nothing about runMissionEvaluation(), the agents, or
+ * the consolidation it already does is duplicated or reimplemented here.
+ * Same shape/spirit as AgentExecution above: `input`/`report` are the exact
+ * same JSON shapes already used elsewhere (a Mission's own config; the
+ * existing FinalEvaluationReport), never a second format.
+ */
+model EvaluationMissionRun {
+  id        String                     @id @default(cuid())
+  projectId String
+  status    EvaluationMissionRunStatus @default(RUNNING)
+  input     Json // { target, objective, task, requestedAgents } — the EvaluationMission's own shape, minus id
+  report    Json? // FinalEvaluationReport (src/core/findings/mission-evaluation-report.ts), once available
+  error     String? // set only when status = FAILED (the orchestration itself threw)
+  // The executor this run actually used — same ModelProviderKind enum
+  // AgentExecution already uses (src/core/runtime/run-agent.ts's own
+  // toProviderKind()), captured once at creation time, before any agent
+  // runs. Nullable because a Run created before this field existed has no
+  // way to know its own history — never backfilled with a guess. `model`
+  // mirrors AgentExecution's own model resolution for one representative
+  // requested agent — informational only; each AgentExecution's own
+  // `model` remains the authoritative per-agent value.
+  provider  ModelProviderKind?
+  model     String?
+  // The Head's synthesis of `report` above (src/core/findings/head-report.ts)
+  // — a separate, additive column rather than a new field inside `report`,
+  // so FinalEvaluationReport's own shape (already relied on by MissionReport
+  // and every existing consumer) stays completely untouched. Null exactly
+  // when `report` itself is null (FAILED runs, or runs from before this
+  // column existed) — never backfilled with a guess.
+  headReport Json?
+  createdAt DateTime                   @default(now())
+  updatedAt DateTime                   @updatedAt
+
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  recommendations Recommendation[]
+
+  @@index([projectId])
+}
+
+enum RecommendationStatus {
+  PENDING
+  APPROVED
+  IGNORED
+}
+
+/**
+ * The minimal persistent unit the human-decision loop actually needs: one
+ * row per consolidated finding (mission-evaluation-report.ts's own
+ * ConsolidatedFinding — never re-deduplicated or re-consolidated here),
+ * created once when its EvaluationMissionRun completes, carrying the Head's
+ * own framing of it (title/summary/whyItMatters/recommendedAction — plain
+ * text, never re-derived later) plus a `status` a human can move from
+ * PENDING to APPROVED or IGNORED. `findingIndex` is that finding's position
+ * in the run's own `report.findings` array — stable because a completed
+ * run's report is never regenerated. IMPLEMENTED/VERIFIED intentionally
+ * don't exist yet — those belong to a future execution/verification phase,
+ * not this one (see docs/DECISIONS.md).
+ */
+model Recommendation {
+  id                String               @id @default(cuid())
+  missionRunId      String
+  findingIndex      Int
+  title             String
+  summary           String
+  whyItMatters      String
+  recommendedAction String
+  impact            String? // mirrors AgentOutput's own IMPACT_LEVELS string, never a new enum for the same values
+  confidence        String? // mirrors AgentOutput's own CONFIDENCE_LEVELS string
+  status            RecommendationStatus @default(PENDING)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  missionRun EvaluationMissionRun @relation(fields: [missionRunId], references: [id], onDelete: Cascade)
+
+  @@unique([missionRunId, findingIndex])
 }
 
 // ── Memory ───────────────────────────────────────────────────────────────

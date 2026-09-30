@@ -9,13 +9,36 @@ import type { AgentMessageBus } from "@/core/messaging/agent-message-bus";
 
 /**
  * ModelProvider.name -> the Prisma enum value recorded on AgentExecution.
- * Only "anthropic" maps to the real provider; anything else (the real
- * MockModelProvider's "mock", or a test double's own name) maps to MOCK —
- * the DB column has no third "other" value, and "not the real Anthropic
- * provider" is the honest classification for a test fake either way.
+ * "anthropic" and "gemini" map to their own real providers; "claude-code" is
+ * this project's own manual executor (a ModelProvider object injected only
+ * via setModelProviderForTesting() for a deliberate, interactive run — never
+ * selected automatically by getModelProvider(), never a ClaudeCodeModelProvider
+ * class). Anything else (the real MockModelProvider's "mock", or an
+ * unrecognized test double's own name) maps to MOCK — a real, reasoned run
+ * (Gemini, or Claude Code itself) must never be recorded as if it were faked.
  */
-function toProviderKind(name: string): ModelProviderKind {
-  return name === "anthropic" ? "ANTHROPIC" : "MOCK";
+export function toProviderKind(name: string): ModelProviderKind {
+  if (name === "anthropic") return "ANTHROPIC";
+  if (name === "gemini") return "GEMINI";
+  if (name === "claude-code") return "CLAUDE_CODE";
+  return "MOCK";
+}
+
+/**
+ * Deterministic fallback for `needsOtherAgent` — cheap, evidence-based, and
+ * never an extra model/LLM call. The model's own decision always wins; this
+ * only fills the slot in when the model left it null. Rule: a real,
+ * evidenced FINDING from an agent whose job isn't functional verification
+ * (i.e., not a QA-category agent) is exactly the case worth an automatic
+ * qa-agent double-check — never for NO_FINDING/UNCONFIRMED (nothing to
+ * verify), and never when a QA-category agent itself reports the finding
+ * (it already is the functional check, so this can never chain into a
+ * second request on its own).
+ */
+function deriveNeedsOtherAgent(agent: ResolvedAgent, output: AgentOutput): string | null {
+  if (output.needsOtherAgent) return output.needsOtherAgent;
+  if (output.status === "FINDING" && agent.category !== "QA") return "qa-agent";
+  return null;
 }
 
 export interface RunAgentInput {
@@ -25,13 +48,13 @@ export interface RunAgentInput {
   context?: Record<string, unknown>;
   executionConfig?: { maxRetries?: number };
   /**
-   * Optional. When given, and the validated output sets `needsOtherAgent`
-   * to another agent's slug, a REVIEW_REQUEST is sent to it — nothing else
-   * changes. Omitted (every existing caller's current behavior), this
-   * never runs: runAgent's own return value and persistence are byte-for-
-   * byte identical either way. Never auto-discovers a recipient — the
-   * destination is only ever the slug the model itself already put in
-   * `needsOtherAgent`.
+   * Optional. When given, and the effective output (the model's own
+   * `needsOtherAgent`, or the deterministic fallback — see
+   * deriveNeedsOtherAgent below) names another agent's slug, a
+   * REVIEW_REQUEST is sent to it — nothing else changes. Omitted (every
+   * existing caller's current behavior), the message-sending never runs;
+   * the deterministic fallback itself still applies either way (it's part
+   * of the output, not the messaging).
    */
   messageBus?: AgentMessageBus;
 }
@@ -61,10 +84,14 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     throw new Error(`Agent "${agent.id}" is disabled and cannot be executed.`);
   }
 
-  const model = MODEL_TIER_TO_ID[agent.modelTier];
   // Resolved before creating the execution row so which provider actually
   // answered is recorded from the start, not patched in afterward.
   const provider = getModelProvider();
+  // Claude Code (this project's own manual executor) has no tier mapping of
+  // its own — it's a single, fixed identity, not a family of concrete model
+  // ids to pick between. Every other provider (Anthropic, Gemini, Mock)
+  // keeps using the existing tier table unchanged.
+  const model = provider.name === "claude-code" ? "claude-code" : MODEL_TIER_TO_ID[agent.modelTier];
 
   const system = buildSystemPrompt(agent);
   const prompt = buildUserPrompt(task, context);
@@ -128,11 +155,21 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     const durationMs = Date.now() - startedAt;
     const cost = estimateCost(model, inputTokens, outputTokens);
 
+    // The effective output: the model's own needsOtherAgent when it set
+    // one, otherwise the deterministic fallback above — persisted and
+    // returned as-is, so it's exactly what the Coordinator (and anything
+    // else reading this AgentExecution) sees. Every other field is
+    // untouched, byte-for-byte the model's own output.
+    const effectiveOutput: AgentOutput = {
+      ...validation.data,
+      needsOtherAgent: deriveNeedsOtherAgent(agent, validation.data),
+    };
+
     await db.agentExecution.update({
       where: { id: execution.id },
       data: {
         status: "SUCCESS",
-        output: validation.data as Prisma.InputJsonValue,
+        output: effectiveOutput as Prisma.InputJsonValue,
         inputTokens,
         outputTokens,
         estimatedCost: cost,
@@ -140,21 +177,22 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       },
     });
 
-    // Only when a bus was actually given and the output names a real
-    // recipient — never invents one, never calls it automatically, never
-    // makes another model call. A malformed slug (not this agent's job to
-    // validate) fails the message's own schema, not this otherwise-
+    // Only when a bus was actually given and the (possibly derived) output
+    // names a real recipient — never invents a recipient beyond the rule
+    // above, never calls it automatically beyond sending this one message,
+    // never makes another model call. A malformed slug (not this agent's
+    // job to validate) fails the message's own schema, not this otherwise-
     // successful run — see agentMessageSchema's toAgent format.
-    if (input.messageBus && validation.data.needsOtherAgent) {
+    if (input.messageBus && effectiveOutput.needsOtherAgent) {
       try {
         input.messageBus.send({
           id: `${execution.id}-review-request`,
           fromAgent: agent.id,
-          toAgent: validation.data.needsOtherAgent,
+          toAgent: effectiveOutput.needsOtherAgent,
           type: "REVIEW_REQUEST",
           payload: {
-            reason: validation.data.finding ?? "Agent requested input from another agent.",
-            evidence: validation.data.evidence,
+            reason: effectiveOutput.finding ?? "Agent requested input from another agent.",
+            evidence: effectiveOutput.evidence,
           },
           createdAt: new Date(),
         });
@@ -165,7 +203,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       }
     }
 
-    return { executionId: execution.id, status: "SUCCESS", output: validation.data, error: null };
+    return { executionId: execution.id, status: "SUCCESS", output: effectiveOutput, error: null };
   }
 
   const durationMs = Date.now() - startedAt;

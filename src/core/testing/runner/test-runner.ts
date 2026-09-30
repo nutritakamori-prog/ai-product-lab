@@ -4,11 +4,13 @@ import type { Project, Prisma, TestRunStatus } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { getDefaultOrganization } from "@/services/organizations";
 import type { ResolvedAgent } from "@/core/agents/registry";
-import { runAgent } from "@/core/runtime/run-agent";
+import { runAgent, type RunAgentResult } from "@/core/runtime/run-agent";
+import { routeTask } from "@/core/orchestrator/smart-router";
+import type { CoordinationResult } from "@/core/coordination/agent-coordinator";
 import type { AgentOutput } from "@/domain/agent-output";
 import type { TestScenario } from "../scenarios/test-protocol";
 import { startAppServer } from "./app-server";
-import { launchBrowserAdapter, type PlaywrightBrowserAdapter } from "./browser-adapter";
+import { launchBrowserAdapter, type BrowserAdapter, type PlaywrightBrowserAdapter } from "./browser-adapter";
 
 /**
  * One real, evidenced observation gathered while attempting a scenario step
@@ -125,6 +127,55 @@ async function cleanupTestProject(name: string): Promise<void> {
 }
 
 /**
+ * Fills and submits the real create-project form (assumes the adapter is
+ * already on a page where it's rendered, e.g. after navigating to
+ * /projects), producing real Observations. Extracted so both the
+ * "new-user-creates-first-project" scenario's step executor below and
+ * src/services/task-intents.ts's "create-project" intent exercise the
+ * exact same real interaction — never two parallel implementations of the
+ * same flow.
+ */
+export async function fillAndSubmitCreateProjectForm(adapter: BrowserAdapter, name: string): Promise<Observation[]> {
+  const observations: Observation[] = [];
+
+  const formText = await adapter.getText("form");
+  const formHasCreateAction = formText.includes("Create project");
+  observations.push({
+    action: "Read the create-project form actually rendered on the Projects page.",
+    expected: 'A form with a "Create project" action is present.',
+    observed: formHasCreateAction
+      ? 'A form containing "Create project" was found in the DOM.'
+      : `No "Create project" text found in the form. Form text: "${formText.slice(0, 200)}"`,
+    evidence: `getText("form") = "${formText.slice(0, 200)}"`,
+  });
+
+  await adapter.fill("#name", name);
+  const filledValue = await adapter.getText("#name");
+  observations.push({
+    action: `Fill the project name field with "${name}".`,
+    expected: "The name field holds exactly the entered value.",
+    observed:
+      filledValue === name
+        ? `The name field now reads "${filledValue}".`
+        : `The name field reads "${filledValue}", not the entered value.`,
+    evidence: `getText("#name") (the field's real inputValue) = "${filledValue}".`,
+  });
+
+  await adapter.click('button[type="submit"]');
+  const submit = await pollUntil(() => adapter.getText("body"), (text) => text.includes(name));
+  observations.push({
+    action: "Submit the form to create the project.",
+    expected: "The new project subsequently appears in the project list.",
+    observed: submit.found
+      ? `The project name "${name}" is present on the page after submitting.`
+      : `The project name "${name}" was NOT found on the page after submitting (waited ~3s). Page text sample: "${submit.lastText.slice(0, 300)}"`,
+    evidence: `getText("body") after submit ${submit.found ? "contains" : "does not contain"} "${name}".`,
+  });
+
+  return observations;
+}
+
+/**
  * Scenario-specific step execution: a small, honest mapping from "what this
  * scenario's steps mean" to "what code actually runs to find out" — one
  * entry per scenario that can be exercised for real today. Deliberately not
@@ -162,39 +213,7 @@ const STEP_EXECUTORS: Record<string, (tracePath: string) => Promise<StepExecutio
         evidence: `getText("body") after the click ${nav.found ? "contains" : "does not contain"} "New project".`,
       });
 
-      const formText = await adapter.getText("form");
-      const formHasCreateAction = formText.includes("Create project");
-      observations.push({
-        action: "Read the create-project form actually rendered on the Projects page.",
-        expected: 'A form with a "Create project" action is present.',
-        observed: formHasCreateAction
-          ? 'A form containing "Create project" was found in the DOM.'
-          : `No "Create project" text found in the form. Form text: "${formText.slice(0, 200)}"`,
-        evidence: `getText("form") = "${formText.slice(0, 200)}"`,
-      });
-
-      await adapter.fill("#name", name);
-      const filledValue = await adapter.getText("#name");
-      observations.push({
-        action: `Fill the project name field with "${name}".`,
-        expected: "The name field holds exactly the entered value.",
-        observed:
-          filledValue === name
-            ? `The name field now reads "${filledValue}".`
-            : `The name field reads "${filledValue}", not the entered value.`,
-        evidence: `getText("#name") (the field's real inputValue) = "${filledValue}".`,
-      });
-
-      await adapter.click('button[type="submit"]');
-      const submit = await pollUntil(() => adapter!.getText("body"), (text) => text.includes(name));
-      observations.push({
-        action: "Submit the form to create the project.",
-        expected: "The new project subsequently appears in the project list.",
-        observed: submit.found
-          ? `The project name "${name}" is present on the page after submitting.`
-          : `The project name "${name}" was NOT found on the page after submitting (waited ~3s). Page text sample: "${submit.lastText.slice(0, 300)}"`,
-        evidence: `getText("body") after submit ${submit.found ? "contains" : "does not contain"} "${name}".`,
-      });
+      observations.push(...(await fillAndSubmitCreateProjectForm(adapter, name)));
     } catch (err) {
       observations.push({
         action: "Drive the real browser through the project-creation flow.",
@@ -202,6 +221,77 @@ const STEP_EXECUTORS: Record<string, (tracePath: string) => Promise<StepExecutio
         observed: `Browser automation failed before completing: ${err instanceof Error ? err.message : String(err)}`,
         evidence:
           "An exception was thrown by the browser/server automation itself — this is an infrastructure failure, not evidence about the application's own behavior.",
+      });
+    } finally {
+      if (adapter) await adapter.close().catch(() => {});
+      if (server) await server.close().catch(() => {});
+      await cleanupTestProject(name);
+    }
+
+    return { observations };
+  },
+
+  "ux-agent-evaluates-project-creation-flow-clarity": async (tracePath) => {
+    // Same real interaction as new-user-creates-first-project above — the
+    // observations here are framed around clarity/discoverability/outcome,
+    // not first impression, since a different agent evaluates this run.
+    const observations: Observation[] = [];
+    const name = `Test scenario project ${Date.now()}`;
+    let server: Awaited<ReturnType<typeof startAppServer>> | null = null;
+    let adapter: PlaywrightBrowserAdapter | null = null;
+
+    try {
+      server = await startAppServer();
+      adapter = await launchBrowserAdapter(server.baseUrl, tracePath);
+
+      const home = await adapter.navigate("/");
+      observations.push({
+        action: "Open the AI Product Lab application in a real browser (Playwright + Chromium).",
+        expected: "The application responds and renders a real page.",
+        observed: `Loaded ${home.url} — page.content() returned ${home.html.length} bytes of real HTML.`,
+        evidence: `page.goto("${home.url}") resolved without error.`,
+      });
+
+      await adapter.click('a[href="/projects"]');
+      const nav = await pollUntil(() => adapter!.getText("body"), (text) => text.includes("New project"));
+      observations.push({
+        action: "Navigate to the Projects area and check whether the action to create a project is easy to find.",
+        expected: 'The action to create a project ("New project") is visible right away, without extra steps.',
+        observed: nav.found
+          ? 'The page contains "New project" immediately after navigating — the action is easy to find.'
+          : `After navigating, the page did not contain "New project" within the wait window (3s). Page text sample: "${nav.lastText.slice(0, 200)}"`,
+        evidence: `getText("body") after navigating to Projects ${nav.found ? "contains" : "does not contain"} "New project".`,
+      });
+
+      const formText = await adapter.getText("form");
+      const formHasCreateAction = formText.includes("Create project");
+      observations.push({
+        action: "Read the create-project form actually rendered on the page and check whether it's understandable.",
+        expected: "The form's action is clearly labeled, so it's obvious what completing it will do.",
+        observed: formHasCreateAction
+          ? 'A form clearly labeled "Create project" was found in the DOM.'
+          : `No "Create project" label found in the form. Form text: "${formText.slice(0, 200)}"`,
+        evidence: `getText("form") = "${formText.slice(0, 200)}"`,
+      });
+
+      await adapter.fill("#name", name);
+      await adapter.click('button[type="submit"]');
+      const submit = await pollUntil(() => adapter!.getText("body"), (text) => text.includes(name));
+      observations.push({
+        action: "Complete the flow by submitting the form and checking whether the outcome is clear.",
+        expected: "After submitting, the outcome is immediately clear — the new project is visibly reflected on the page, without friction.",
+        observed: submit.found
+          ? `The project name "${name}" is present on the page after submitting — the outcome of completing the flow is clear.`
+          : `The project name "${name}" was NOT found on the page after submitting (waited ~3s) — the outcome of the flow is not clear. Page text sample: "${submit.lastText.slice(0, 300)}"`,
+        evidence: `getText("body") after submit ${submit.found ? "contains" : "does not contain"} "${name}".`,
+      });
+    } catch (err) {
+      observations.push({
+        action: "Drive the real browser through the project-creation flow to evaluate its clarity.",
+        expected: "Every step above completes and produces real DOM evidence.",
+        observed: `Browser automation failed before completing: ${err instanceof Error ? err.message : String(err)}`,
+        evidence:
+          "An exception was thrown by the browser/server automation itself — this is an infrastructure failure, not evidence about the application's own UX.",
       });
     } finally {
       if (adapter) await adapter.close().catch(() => {});
@@ -573,7 +663,7 @@ const STEP_EXECUTORS: Record<string, (tracePath: string) => Promise<StepExecutio
       await adapter.click('a[href="/"]');
       const awayFromProjects = await pollUntil(
         () => adapter!.getText("body"),
-        (text) => text.includes("AI Product Lab is in its foundation phase"),
+        (text) => text.includes("Agents configured"),
       );
       observations.push({
         action: 'Navigate away, to Dashboard, using the app\'s real navigation — a real interaction, not a page reload of Projects itself.',
@@ -581,7 +671,7 @@ const STEP_EXECUTORS: Record<string, (tracePath: string) => Promise<StepExecutio
         observed: awayFromProjects.found
           ? "The page now shows the Dashboard's real content."
           : `After clicking, the page did not show the Dashboard's content within the wait window (3s). Page text sample: "${awayFromProjects.lastText.slice(0, 200)}"`,
-        evidence: `getText("body") after the click ${awayFromProjects.found ? "contains" : "does not contain"} "AI Product Lab is in its foundation phase".`,
+        evidence: `getText("body") after the click ${awayFromProjects.found ? "contains" : "does not contain"} "Agents configured".`,
       });
 
       await adapter.click('a[href="/projects"]');
@@ -767,7 +857,7 @@ const STEP_EXECUTORS: Record<string, (tracePath: string) => Promise<StepExecutio
       await adapter.click('a[href="/"]');
       const awayFromProjects = await pollUntil(
         () => adapter!.getText("body"),
-        (text) => text.includes("AI Product Lab is in its foundation phase"),
+        (text) => text.includes("Agents configured"),
       );
       observations.push({
         action: "Navigate away from Projects using the app's real navigation.",
@@ -775,7 +865,7 @@ const STEP_EXECUTORS: Record<string, (tracePath: string) => Promise<StepExecutio
         observed: awayFromProjects.found
           ? "The page now shows the Dashboard's real content."
           : `After clicking, the page did not show the Dashboard's content within the wait window (3s). Page text sample: "${awayFromProjects.lastText.slice(0, 200)}"`,
-        evidence: `getText("body") after the click ${awayFromProjects.found ? "contains" : "does not contain"} "AI Product Lab is in its foundation phase".`,
+        evidence: `getText("body") after the click ${awayFromProjects.found ? "contains" : "does not contain"} "Agents configured".`,
       });
 
       await adapter.click('a[href="/projects"]');
@@ -857,6 +947,19 @@ export interface RunTestScenarioInput {
   scenario: TestScenario;
   agent: ResolvedAgent;
   project: Pick<Project, "id">;
+  /**
+   * Optional, defaults to false (every existing/other caller is
+   * unaffected). When true, the scenario's agent is executed through the
+   * existing Smart Router -> Agent Coordinator chain
+   * (src/core/orchestrator/smart-router.ts, src/core/coordination/
+   * agent-coordinator.ts) instead of calling runAgent() directly — proving
+   * that chain end to end on a real scenario. Never picks a different
+   * agent than `agent`: if the Router's own deterministic rules resolve to
+   * some other agent for this scenario's task text, that's treated as an
+   * infrastructure error (see the try/catch below), never a silent
+   * substitution.
+   */
+  useSmartRouter?: boolean;
 }
 
 export interface RunTestScenarioResult {
@@ -871,6 +974,15 @@ export interface RunTestScenarioResult {
    * from being silently reinterpreted as a product finding.
    */
   infrastructureError: string | null;
+  /**
+   * Set only when `useSmartRouter` was used for this run — the Agent
+   * Coordinator's own result (see src/core/coordination/agent-coordinator.ts),
+   * exposed as-is so a caller can confirm a review round actually happened
+   * (messages exchanged, agents called) without re-deriving it. Null
+   * whenever the direct runAgent() path was used instead, or the run never
+   * got far enough to route at all.
+   */
+  coordination: CoordinationResult | null;
 }
 
 /**
@@ -880,7 +992,7 @@ export interface RunTestScenarioResult {
  * and close the TestRun with the resulting status/findings.
  */
 export async function runTestScenario(input: RunTestScenarioInput): Promise<RunTestScenarioResult> {
-  const { scenario, agent, project } = input;
+  const { scenario, agent, project, useSmartRouter } = input;
   const startedAt = new Date();
 
   const testRun = await db.testRun.create({
@@ -904,7 +1016,7 @@ export async function runTestScenario(input: RunTestScenarioInput): Promise<RunT
         durationMs: Date.now() - startedAt.getTime(),
       },
     });
-    return { testRunId: testRun.id, status: "BLOCKED", findings: [], infrastructureError: null };
+    return { testRunId: testRun.id, status: "BLOCKED", findings: [], infrastructureError: null, coordination: null };
   }
 
   // One trace per TestRun, named by its own id — computed up front so both
@@ -920,7 +1032,29 @@ export async function runTestScenario(input: RunTestScenarioInput): Promise<RunT
   try {
     const { observations } = await executor(tracePath);
     const task = buildScenarioTask(scenario, observations);
-    const runResult = await runAgent({ agent, project, task });
+
+    let runResult: RunAgentResult;
+    let coordination: CoordinationResult | null = null;
+    if (useSmartRouter) {
+      // The existing Smart Router -> Agent Coordinator chain, exercised
+      // for real — never a second, parallel execution path: this IS the
+      // one and only agent call for this scenario when the flag is set.
+      // If the coordinator's own rules (Registry check, call/round limits)
+      // trigger a review round, that round is exercised for real too —
+      // never forced, never a second scenario-level attempt.
+      const routed = await routeTask({ task, project });
+      if (!routed.coordination || routed.chosenAgent !== agent.id) {
+        // Never silently run a different agent than the scenario declares
+        // — an infrastructure condition, not a product finding.
+        throw new Error(
+          `Smart Router did not resolve to this scenario's declared agent "${agent.id}" (got: ${routed.chosenAgent ?? "none"}, status: ${routed.status}).`,
+        );
+      }
+      coordination = routed.coordination;
+      runResult = routed.coordination.initialResult;
+    } else {
+      runResult = await runAgent({ agent, project, task });
+    }
 
     const finishedAt = new Date();
     const durationMs = finishedAt.getTime() - startedAt.getTime();
@@ -963,7 +1097,7 @@ export async function runTestScenario(input: RunTestScenarioInput): Promise<RunT
       },
     });
 
-    return { testRunId: testRun.id, status, findings, infrastructureError: null };
+    return { testRunId: testRun.id, status, findings, infrastructureError: null, coordination };
   } catch (err) {
     const finishedAt = new Date();
     const message = err instanceof Error ? err.message : String(err);
@@ -986,6 +1120,6 @@ export async function runTestScenario(input: RunTestScenarioInput): Promise<RunT
       },
     });
 
-    return { testRunId: testRun.id, status: "NEEDS_REVIEW", findings: [], infrastructureError: message };
+    return { testRunId: testRun.id, status: "NEEDS_REVIEW", findings: [], infrastructureError: message, coordination: null };
   }
 }

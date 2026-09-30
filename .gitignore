@@ -15,6 +15,11 @@
 /test-results
 /zap-out
 
+# per-run artifacts for scripts/run-claude-code-mission.ts — a specific
+# mission's evidence/judgment, never a committed history (see docs/DECISIONS.md)
+/scripts/claude-code-mission/*.json
+!/scripts/claude-code-mission/mission.example.json
+
 # next.js
 /.next/
 /out/

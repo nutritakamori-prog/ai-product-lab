@@ -44,6 +44,42 @@ const PROMPT_WITHOUT_STRUCTURED_EVIDENCE = `Task: Review the checkout flow for g
 Context:
 (none)`;
 
+// The exact wording task-intents.ts's checkElementExists / plan-executor.ts's
+// find step produce for a genuine absence — found missing from
+// NEGATIVE_MARKERS during a self-evaluation session: a real, unambiguous
+// "the element isn't there" was silently reported as NO_FINDING.
+const REALISTIC_PROMPT_ELEMENT_NOT_FOUND = `Task: Abra data:text/html,<button id="entrar">Entrar</button> e clique no botão Entrar e verifique se existe o botão Continuar.
+
+1. ACTION: Open the page in a real browser (Playwright + Chromium).
+   EXPECTED: The page responds and renders real content.
+   OBSERVED: Loaded data:text/html,<button id="entrar">Entrar</button> — page.content() returned 40 bytes of real HTML.
+   EVIDENCE: page.goto(...) resolved without error.
+
+2. ACTION: Click "#entrar".
+   EXPECTED: The element matching "#entrar" is clickable and receives the click.
+   OBSERVED: Clicked "#entrar" without error.
+   EVIDENCE: adapter.click("#entrar") resolved without error.
+
+3. ACTION: Check whether an element matching "botão Continuar" (selector: role=button[name=/Continuar/i]) exists on the page.
+   EXPECTED: An element matching "botão Continuar" is present.
+   OBSERVED: No element matching "botão Continuar" was found on the page.
+   EVIDENCE: exists("role=button[name=/Continuar/i]") -> false.
+
+Based ONLY on the observations above, report status "FINDING" if there is a real, evidenced problem, "NO_FINDING" if everything worked as expected, or "UNCONFIRMED" if unsure.`;
+
+// The exact wording produced when the LAB itself couldn't build a selector
+// for the requested element type — also found missing from
+// INCONCLUSIVE_MARKERS: this means nothing was actually verified, yet it
+// was silently reported as NO_FINDING ("everything worked as expected").
+const REALISTIC_PROMPT_NO_SELECTOR = `Task: Abra https://exemplo.com e clique no botão Entrar e verifique se existe o campo de e-mail.
+
+1. ACTION: Determine a reliable selector for "campo de e-mail".
+   EXPECTED: A deterministic selector could be built for "campo de e-mail".
+   OBSERVED: No deterministic selector could be built for "campo de e-mail".
+   EVIDENCE: "campo de e-mail" did not match any known, deterministically mappable element type.
+
+Based ONLY on the observations above, report status "FINDING" if there is a real, evidenced problem, "NO_FINDING" if everything worked as expected, or "UNCONFIRMED" if unsure.`;
+
 describe("MockModelProvider", () => {
   const provider = new MockModelProvider();
 
@@ -106,6 +142,36 @@ describe("MockModelProvider", () => {
       model: "claude-haiku-4-5",
       system: "You are a generic agent.",
       prompt: PROMPT_WITHOUT_STRUCTURED_EVIDENCE,
+      maxTokens: 800,
+      schema: agentOutputSchema,
+    });
+
+    expect(agentOutputSchema.safeParse(result.data).success).toBe(true);
+    expect(result.data?.status).toBe("UNCONFIRMED");
+  });
+
+  it("reports status FINDING when the real Observation shows a requested element is genuinely absent (\"no element matching ... was found\")", async () => {
+    const result = await provider.completeStructured({
+      model: "claude-haiku-4-5",
+      system: "You are qa-agent.",
+      prompt: REALISTIC_PROMPT_ELEMENT_NOT_FOUND,
+      maxTokens: 800,
+      schema: agentOutputSchema,
+    });
+
+    expect(agentOutputSchema.safeParse(result.data).success).toBe(true);
+    expect(result.data?.status).toBe("FINDING");
+    expect(result.data?.evidence).toContain('No element matching "botão Continuar" was found on the page.');
+    expect(result.data?.classification).not.toBeNull();
+    expect(result.data?.impact).not.toBeNull();
+    expect(result.data?.recommendation).not.toBeNull();
+  });
+
+  it("reports status UNCONFIRMED — never NO_FINDING — when the LAB itself couldn't build a selector to check anything", async () => {
+    const result = await provider.completeStructured({
+      model: "claude-haiku-4-5",
+      system: "You are qa-agent.",
+      prompt: REALISTIC_PROMPT_NO_SELECTOR,
       maxTokens: 800,
       schema: agentOutputSchema,
     });

@@ -1,0 +1,12 @@
+{
+  "target": { "url": "http://localhost:3000", "name": "AI Product Lab" },
+  "objective": "Avaliar se o Test Lab apresenta claramente os dois caminhos de teste disponíveis e se um novo usuário consegue entender quando usar cada um.",
+  "task": "Acesse o Test Lab como um usuário novo. Observe os dois fluxos disponíveis, New test e Evaluation Mission. Avalie se a diferença entre eles está clara, se as instruções são suficientes e se existem pontos de confusão.",
+  "requestedAgents": ["new-user", "qa-agent", "ux-agent"],
+  "plan": {
+    "actions": [
+      { "action": "navigate", "target": "http://localhost:3000/test-lab" },
+      { "action": "getText", "target": "body" }
+    ]
+  }
+}

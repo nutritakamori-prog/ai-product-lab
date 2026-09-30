@@ -13,12 +13,27 @@ export interface BrowserAdapter {
   click(selector: string): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
   getText(selector: string): Promise<string>;
+  /**
+   * Unlike click/fill/getText — which wait out Playwright's normal
+   * actionability timeout and throw if the element never appears —
+   * `exists` answers the yes/no question itself: `true` if the element
+   * attaches to the DOM within a short wait, `false` if it doesn't. A
+   * timeout here means "not found", not an infrastructure error, so it's
+   * caught internally and turned into `false` rather than propagated.
+   */
+  exists(selector: string): Promise<boolean>;
 }
 
 // Pre-installed in this environment (see docs/DECISIONS.md) — passed
 // explicitly so Playwright never tries to download a browser matching its
 // own npm package's pinned revision, which isn't necessarily what's here.
 const CHROMIUM_EXECUTABLE_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/opt/pw-browsers/chromium";
+
+// Short and deliberate: exists() is asked precisely when the caller doesn't
+// know whether the element is there, so a "not found" answer should come
+// back quickly rather than waiting out click/fill's much longer default
+// actionability timeout.
+const EXISTS_TIMEOUT_MS = 3_000;
 
 /**
  * Real UI automation against a real running instance of the app (see
@@ -99,6 +114,21 @@ export class PlaywrightBrowserAdapter implements BrowserAdapter {
       return locator.inputValue();
     }
     return locator.innerText();
+  }
+
+  /**
+   * A real, actionability-independent presence check: waits briefly for the
+   * element to attach to the DOM (it doesn't need to be visible/clickable —
+   * unlike click/fill, this never interacts with it) and reports what
+   * actually happened, never invents a result either way.
+   */
+  async exists(selector: string): Promise<boolean> {
+    try {
+      await this.page.locator(selector).first().waitFor({ state: "attached", timeout: EXISTS_TIMEOUT_MS });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async close(): Promise<void> {

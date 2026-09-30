@@ -9,6 +9,16 @@ import { runTestScenario } from "./test-runner";
 
 const LAB_SELF_TEST_PROJECT_NAME = "AI Product Lab (self-test)";
 
+// Scenarios proven to go through the Smart Router -> Agent Coordinator
+// chain instead of calling runAgent() directly — see runTestScenario()'s
+// `useSmartRouter` flag. Deliberately a short, explicit list (not every
+// scenario): each entry here was individually verified to route to its own
+// declared agent before being added.
+const SMART_ROUTER_SCENARIO_IDS = new Set([
+  "new-user-creates-first-project",
+  "ux-agent-evaluates-project-creation-flow-clarity",
+]);
+
 /**
  * The LAB tests itself now (see docs/DECISIONS.md's "Test Lab: the LAB
  * tests itself" entry) — but TestRun/AgentExecution still require a real
@@ -63,8 +73,10 @@ export interface TestRoundResult {
  * and everything it already reuses (the Test Runner's step executors, the
  * real BrowserAdapter, the Agent Runtime) — for every individual run; this
  * function only adds the loop and the shared project. Which agent runs
- * which scenario is fixed by the scenario file, decided by its author, not
- * chosen at runtime — this is not a Smart Router.
+ * which scenario is still fixed by the scenario file, decided by its
+ * author, not freely chosen at runtime — the one scenario routed through
+ * the Smart Router (below) only confirms that same, already-declared
+ * agent; the Router never gets to pick a different one for a real round.
  */
 export async function runTestRound(): Promise<TestRoundResult> {
   const startedAt = new Date();
@@ -92,7 +104,16 @@ export async function runTestRound(): Promise<TestRoundResult> {
         continue;
       }
 
-      const result = await runTestScenario({ scenario, agent, project });
+      const result = await runTestScenario({
+        scenario,
+        agent,
+        project,
+        // Proves the Smart Router -> Agent Coordinator -> Agent Runtime
+        // chain end to end on real, representative scenarios, without
+        // changing behavior for any other scenario. See
+        // test-runner.ts's runTestScenario() for what this flag does.
+        useSmartRouter: SMART_ROUTER_SCENARIO_IDS.has(scenario.id),
+      });
       entries.push({
         testRunId: result.testRunId,
         scenario,

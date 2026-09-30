@@ -39,9 +39,52 @@ const AGENT_MATCH_RULES: AgentMatchRule[] = [
     pattern: /\b(ux|experi[eê]ncia do usu[aá]rio|user experience|fluxo|usabilidade|usability|fric[cç][aã]o|friction|clareza de interface|clareza do fluxo)\b/i,
     reason: "Task mentions UX/user experience/flow/usability/friction/interface clarity — matched the ux-agent rule.",
   },
+  {
+    agentId: "new-user",
+    // Both "criar/crie" and "projeto" present anywhere in the task, in
+    // either order — covers "Crie um projeto novo chamado X", "Criar um
+    // projeto chamado X", "Quero criar um projeto", etc. new-user already
+    // has a real scenario for exactly this action
+    // (new-user-creates-first-project), so it's the existing agent best
+    // placed to evaluate the result.
+    pattern: /(?=.*\bcri(?:ar|e)\b)(?=.*\bprojeto\b)/i,
+    reason: "Task mentions creating a project — matched the new-user rule (project creation).",
+  },
+  {
+    agentId: "qa-agent",
+    // A verify/confirm verb (any conjugation actually used — "verifique"
+    // included, not just the infinitive "verificar" the existing qa-agent
+    // rule above already covers), "projeto", and "exist[e]" present
+    // anywhere in the task, in any order — covers "Verifique se o projeto
+    // X existe", "Verificar se o projeto X existe", "Confira se o projeto
+    // X existe". Functional existence checks are exactly qa-agent's job.
+    pattern: /(?=.*\b(?:verificar|verifique|confira|confirmar|confirme)\b)(?=.*\bprojeto\b)(?=.*\bexist)/i,
+    reason: "Task asks to verify a project's existence — matched the qa-agent rule (project verification).",
+  },
+  {
+    agentId: "qa-agent",
+    // "Abra <url> e verifique se existe <elemento>" — the LAB's first
+    // "open an arbitrary page and check something" flow (see
+    // src/services/task-intents.ts's check-element-exists intent, the only
+    // producer of real evidence for this shape). A functional presence
+    // check on a page is exactly qa-agent's job, same reasoning as the
+    // project-verification rule above.
+    pattern: /(?=.*\babra\b)(?=.*\bverifique\b)(?=.*\bexist)/i,
+    reason: "Task asks to open a page and verify an element's existence — matched the qa-agent rule (element check).",
+  },
 ];
 
-function chooseInitialAgentId(task: string): { agentId: string; reason: string } | null {
+/**
+ * Exported (read-only, no side effects) so callers like
+ * src/services/lab-task.ts can check which rule a task would match — or
+ * that none would — without running the full routeTask()/coordination
+ * pipeline. Used to detect the specific gap found during the 4-task limits
+ * diagnosis: a task can match the create-project/verify-project-exists
+ * rules here while src/services/task-intents.ts's own recognizer has no
+ * executable intent for it, which used to still produce a normal-looking
+ * COMPLETED agent run with no real browser evidence behind it.
+ */
+export function chooseInitialAgentId(task: string): { agentId: string; reason: string } | null {
   const rule = AGENT_MATCH_RULES.find((r) => r.pattern.test(task));
   return rule ? { agentId: rule.agentId, reason: rule.reason } : null;
 }
@@ -50,6 +93,16 @@ export interface RouteTaskInput {
   task: string;
   project: Pick<Project, "id">;
   context?: Record<string, unknown>;
+  /**
+   * Bypasses chooseInitialAgentId()'s keyword matching entirely and uses
+   * this agent id as the initial agent instead — e.g. an EvaluationMission's
+   * requestedAgents (see src/services/lab-task.ts). Still resolved through
+   * the exact same AgentRegistry/coordinateAgentTask() pipeline as the
+   * keyword-matched path below; an id that isn't registered fails exactly
+   * like an unknown keyword-matched one already does (COORDINATION_BLOCKED),
+   * never a silent fallback to a keyword-matched or otherwise different agent.
+   */
+  requestedAgentId?: string;
 }
 
 export interface RouteTaskResult {
@@ -83,12 +136,14 @@ export interface RouteTaskResult {
  * auto-discovers a substitute agent either.
  */
 export async function routeTask(input: RouteTaskInput): Promise<RouteTaskResult> {
-  const choice = chooseInitialAgentId(input.task);
+  const choice = input.requestedAgentId
+    ? { agentId: input.requestedAgentId, reason: `Explicitly requested agent: "${input.requestedAgentId}".` }
+    : chooseInitialAgentId(input.task);
   if (!choice) {
     return {
       chosenAgent: null,
       reason:
-        "No routing rule matched this task — not onboarding/first-use, not QA/validation/evidence/verification, not UX/experience/flow/usability/friction.",
+        "No routing rule matched this task — not onboarding/first-use, not QA/validation/evidence/verification, not UX/experience/flow/usability/friction, not project creation, not project existence verification, not a page element check.",
       coordination: null,
       agentsCalled: [],
       status: "COORDINATION_BLOCKED",

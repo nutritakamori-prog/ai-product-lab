@@ -8,7 +8,20 @@ import type { AgentOutput, FindingClassification } from "@/domain/agent-output";
  * Matches the exact wording the Test Lab's step executors already use
  * (see src/core/testing/runner/test-runner.ts).
  */
-const INCONCLUSIVE_MARKERS = [/not automated/i, /infrastructure (failure|error)/i];
+// "No deterministic selector could be built for X" (task-intents.ts's
+// checkElementExists / plan-executor.ts's find step, both produce this exact
+// wording) means the LAB itself couldn't check anything for that element
+// type — not that the page has no problem. Found during a self-evaluation
+// session: without this marker, that OBSERVED text fell through to
+// NO_FINDING, silently reporting "everything worked as expected" for a step
+// that was never actually verified — exactly the "NOT EXECUTED must never
+// look like EXECUTED SEM PROBLEMA" rule this project states elsewhere
+// (see lab-task.ts) applied to the agent's own analysis, not just routing.
+const INCONCLUSIVE_MARKERS = [
+  /not automated/i,
+  /infrastructure (failure|error)/i,
+  /no deterministic selector could be built/i,
+];
 
 /**
  * Phrases that mean an OBSERVED result genuinely didn't match what was
@@ -20,6 +33,15 @@ const NEGATIVE_MARKERS = [
   /did not contain/i,
   /was not found/i,
   /\bnot found\b/i,
+  // "No element matching "X" was found on the page." — the exact wording
+  // task-intents.ts's checkElementExists and plan-executor.ts's find step
+  // both produce for a genuine absence. Found during a self-evaluation
+  // session: this specific phrase doesn't contain "not found" as adjacent
+  // words ("was found" is the verb phrase, negated only by the leading
+  // "No element"), so it silently fell through to NO_FINDING even when the
+  // real Observation showed the requested element was genuinely absent —
+  // the single most common check this LAB performs.
+  /no element matching/i,
   /no response/i,
   /creation failed/i,
   /\bthrew:/i,
@@ -122,6 +144,59 @@ function buildOutput(analysis: Analysis): AgentOutput {
 }
 
 /**
+ * Included verbatim in src/services/task-planner.ts's system prompt so this
+ * provider can tell a Plan-generation call apart from an ordinary
+ * agent-evaluation call and answer with a Plan-shaped response instead of
+ * an AgentOutput-shaped one. Neither file reaches into the other's
+ * internals — task-planner.ts only imports this one string.
+ */
+export const TASK_PLANNER_SYSTEM_MARKER = "AI Product Lab deterministic browser task planner";
+
+/**
+ * A minimal, deliberately narrow stand-in for what a real model would do for
+ * the ONE task shape src/services/task-planner.ts originally asked it to
+ * support ("Abra <URL> e verifique se existe <elemento>") — not a general
+ * natural-language parser. Outside the two known shapes below, it answers
+ * with an empty actions list, exactly like a real model told "if you can't
+ * confidently represent this, return no actions" would be expected to — it
+ * never guesses a Plan.
+ */
+const MOCK_PLAN_TASK_PATTERN = /abra\s+(\S+)\s+e\s+verifique\s+se\s+existe\s+(.+?)[.!]?(?:\n|$)/i;
+
+/**
+ * A second, still-hardcoded known shape: "Abra <URL> e clique no botão
+ * Entrar e verifique se existe o botão Continuar." — one more literal
+ * sentence this stand-in recognizes, not a generic "click X then find Y"
+ * parser (the click/find targets below are fixed, never derived from
+ * arbitrary captured text). Checked first since it's the more specific of
+ * the two known shapes.
+ */
+const MOCK_PLAN_3_STEP_PATTERN =
+  /abra\s+(\S+)\s+e\s+clique\s+no\s+bot[aã]o\s+entrar\s+e\s+verifique\s+se\s+existe\s+o\s+bot[aã]o\s+continuar[.!]?(?:\n|$)/i;
+
+function mockPlanActions(prompt: string): { actions: unknown[] } {
+  const threeStepMatch = prompt.match(MOCK_PLAN_3_STEP_PATTERN);
+  if (threeStepMatch) {
+    return {
+      actions: [
+        { action: "navigate", target: threeStepMatch[1].trim() },
+        { action: "click", target: "#entrar" },
+        { action: "find", target: "botão Continuar" },
+      ],
+    };
+  }
+
+  const match = prompt.match(MOCK_PLAN_TASK_PATTERN);
+  if (!match) return { actions: [] };
+  return {
+    actions: [
+      { action: "navigate", target: match[1].trim() },
+      { action: "find", target: match[2].trim() },
+    ],
+  };
+}
+
+/**
  * Deterministic, offline stand-in for the real Anthropic provider — see
  * provider.ts's getModelProvider(), which uses this automatically when
  * ANTHROPIC_API_KEY isn't configured, so development can continue without
@@ -136,8 +211,9 @@ export class MockModelProvider implements ModelProvider {
   readonly name = "mock";
 
   async completeStructured<T>(params: StructuredCompletionParams<T>): Promise<StructuredCompletionResult<T>> {
-    const analysis = analyzePrompt(params.prompt);
-    const output = buildOutput(analysis);
+    const output: unknown = params.system.includes(TASK_PLANNER_SYSTEM_MARKER)
+      ? mockPlanActions(params.prompt)
+      : buildOutput(analyzePrompt(params.prompt));
 
     return {
       data: output as unknown as T,

@@ -132,6 +132,31 @@ describe("runAgent (integration, fake provider)", () => {
     expect(execution.provider).toBe("MOCK");
   });
 
+  it("records provider CLAUDE_CODE and model \"claude-code\" for a manually-injected Claude Code executor, never MOCK and never the tier's Anthropic id", async () => {
+    setModelProviderForTesting({
+      name: "claude-code",
+      completeStructured: async <T>() => ({
+        data: VALID_OUTPUT as unknown as T,
+        rawText: JSON.stringify(VALID_OUTPUT),
+        inputTokens: 0,
+        outputTokens: 0,
+        stopReason: "end_turn",
+      }),
+    });
+
+    const result = await runAgent({ agent, project, task: "Review the checkout flow" });
+    executionIds.push(result.executionId);
+
+    expect(result.status).toBe("SUCCESS");
+
+    const execution = await db.agentExecution.findUniqueOrThrow({ where: { id: result.executionId } });
+    expect(execution.provider).toBe("CLAUDE_CODE");
+    expect(execution.model).toBe("claude-code");
+    // Zero real tokens spent -> zero estimated cost, same as any other
+    // unrecognized-by-MODEL_PRICING model id would naturally produce.
+    expect(execution.estimatedCost).toBe(0);
+  });
+
   it("retries on invalid output and succeeds on the second attempt", async () => {
     setModelProviderForTesting(
       fakeProvider((callIndex) =>

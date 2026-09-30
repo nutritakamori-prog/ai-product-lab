@@ -6,6 +6,7 @@ import newUserExploresSettings from "./new-user-explores-settings";
 import newUserSubmitsEmptyProjectName from "./new-user-submits-empty-project-name";
 import qaAgentValidatesEmptyProjectNameSubmission from "./qa-agent-validates-empty-project-name-submission";
 import qaAgentVerifiesProjectPersistenceAfterCreation from "./qa-agent-verifies-project-persistence-after-creation";
+import uxAgentEvaluatesProjectCreationFlowClarity from "./ux-agent-evaluates-project-creation-flow-clarity";
 import type { TestScenario } from "./test-protocol";
 
 /**
@@ -23,4 +24,5 @@ export const TEST_SCENARIOS: TestScenario[] = [
   newUserCreatesProjectAndReturnsToList,
   qaAgentValidatesEmptyProjectNameSubmission,
   qaAgentVerifiesProjectPersistenceAfterCreation,
+  uxAgentEvaluatesProjectCreationFlowClarity,
 ];

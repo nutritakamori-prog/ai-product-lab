@@ -11,6 +11,11 @@ export async function listProjects() {
   });
 }
 
+/** Same shape as services/test-lab.ts's getTestRun(id) — null when no project has this id. */
+export function getProject(id: string) {
+  return db.project.findUnique({ where: { id } });
+}
+
 export async function createProject(input: CreateProjectInput) {
   const data = createProjectSchema.parse(input);
   const organization = await getDefaultOrganization();
