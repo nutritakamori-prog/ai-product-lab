@@ -35,3 +35,31 @@ Everything comes from `src/services/qg.ts`'s `getQgSnapshot()`, which composes s
 - No realtime/WebSocket polling — data is fetched once per page load (`force-dynamic`), same as every other page in the LAB.
 - No true 3D/isometric rendering — the office is a categorized, responsive CSS grid with a floor texture, not a canvas/WebGL scene. This was a deliberate scope decision for a first version (see the Fase 9 report's "Não implementado" section), not an oversight.
 - Never shows an agent as "working" unless a Mission Run genuinely is `RUNNING` at read time.
+
+## Claude Code as a LAB consumer (Fases 15A–15F)
+
+`src/services/claude-lab-adapter.ts` exposes a minimal, allow-listed surface so Claude Code (operating on this repository) can read the LAB and, with explicit human confirmation, act on it — reusing the QG's own Command Router/Action Executor, never a parallel implementation.
+
+```
+READ
+  npm run lab:bridge -- '{"kind":"query","command":"GET_LAST_CYCLE"}'
+  (GET_LAST_CYCLE, GET_RECURRING_FINDINGS, GET_PENDING_RECOMMENDATIONS, GET_AGENT_ACTIVITY, GET_TEAM_ARCHITECT)
+      ↓
+action_candidates — lists real mutation targets, never mutates
+  npm run lab:bridge -- '{"kind":"action_candidates","command":"APPROVE_RECOMMENDATION"}'
+      ↓
+confirmação humana explícita (na conversa — nunca inferida de silêncio)
+      ↓
+npm run lab:confirm -- '{"command":"APPROVE_RECOMMENDATION","targetId":"..."}'
+  (mint + consume do token acontecem no mesmo processo; sem persistência)
+      ↓
+consumeActionConfirmation() → valid → executeQgAction()
+```
+
+Regras que não podem ser quebradas por um futuro consumidor:
+
+- **Não usar um token obtido em um processo anterior.** O token (`qg-action-confirmation.ts`) vive em um `Map` em memória, por processo — por design (Fase 15B-2), fail-closed. `npm run lab:confirm` existe exatamente para nunca precisar disso: ele mesmo re-executa `action_candidates` e consome o token dentro do mesmo processo.
+- **Não tentar persistir o token** (disco, tabela, cache) "para facilitar". Já avaliado e descartado na Fase 15E — o problema nunca foi falta de persistência, era token sendo mintado e consumido em processos diferentes sem necessidade.
+- **Não executar mutation sem confirmação humana explícita na conversa.** Silêncio, "ok" ou "continue" fora de contexto não contam.
+- **Não chamar `executeQgAction()` diretamente**, nem de um novo script, nem de uma nova rota. O único caminho válido é `consumeActionConfirmation()` → `valid` → `executeQgAction()`, através do adapter.
+- Apenas Postgres **local** para testes/validação. Nunca produção.

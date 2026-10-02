@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { ArrowRight } from "lucide-react";
 import { Panel } from "./panel";
-import { confirmQgActionAction, runQgCommandAction, type QgCommandActionResult } from "./qg-command-actions";
+import { confirmQgActionAction, requestQgActionConfirmationAction, runQgCommandAction, type QgCommandActionResult } from "./qg-command-actions";
 import { QG_COMMANDS, type QgActionId } from "@/core/qg-command-router/qg-command-router";
 import type {
   AgentActivityResult,
@@ -38,7 +38,7 @@ type SelectCandidate = (action: QgActionId, targetId: string, title: string, imp
 
 type ConfirmationState =
   | null
-  | { status: "awaiting"; action: QgActionId; targetId: string; title: string; impact: string | null; confidence: string | null }
+  | { status: "awaiting"; action: QgActionId; targetId: string; title: string; impact: string | null; confidence: string | null; token: string }
   | { status: "executing"; action: QgActionId; targetId: string; title: string }
   | { status: "done"; title: string; message: string; failed: boolean }
   | { status: "cancelled"; title: string };
@@ -69,9 +69,24 @@ export function CommandCenterConsole() {
     runCommand(commandInput);
   }
 
-  /** Never auto-selected — always the result of the user clicking one specific, already-rendered candidate (FASE 12 §8: "nunca escolher arbitrariamente"). */
+  /**
+   * Never auto-selected — always the result of the user clicking one
+   * specific, already-rendered candidate (FASE 12 §8: "nunca escolher
+   * arbitrariamente"). FASE 15B-2: this is also the moment the real
+   * server-side confirmation token is minted — reuses the "executing"
+   * visual (already PROCESSANDO...) for this brief round-trip rather than
+   * introducing a new loading state.
+   */
   const selectCandidate: SelectCandidate = (action, targetId, title, impact, confidence) => {
-    setConfirmation({ status: "awaiting", action, targetId, title, impact, confidence });
+    setConfirmation({ status: "executing", action, targetId, title });
+    startTransition(async () => {
+      const confirmationRequest = await requestQgActionConfirmationAction(action, targetId);
+      if (confirmationRequest.status === "ERROR") {
+        setConfirmation({ status: "done", title, message: confirmationRequest.message, failed: true });
+        return;
+      }
+      setConfirmation({ status: "awaiting", action, targetId, title, impact, confidence, token: confirmationRequest.token });
+    });
   };
 
   function cancelConfirmation() {
@@ -82,10 +97,10 @@ export function CommandCenterConsole() {
 
   function confirmAction() {
     if (!confirmation || confirmation.status !== "awaiting") return;
-    const { action, targetId, title } = confirmation;
+    const { action, targetId, title, token } = confirmation;
     setConfirmation({ status: "executing", action, targetId, title });
     startTransition(async () => {
-      const result = await confirmQgActionAction(action, targetId);
+      const result = await confirmQgActionAction(action, targetId, token);
       setConfirmation({ status: "done", title, message: result.message, failed: result.status === "ERROR" });
     });
   }
