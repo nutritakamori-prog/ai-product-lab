@@ -1,13 +1,28 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 /**
  * The one overlay shell every QG click-to-interact detail uses (Agent, Head,
- * Meeting, Reports, Clock) — a single reusable component instead of one
- * bespoke modal per station, and the same dismiss behavior (Escape, the X
- * button, or the backdrop) everywhere.
+ * Meeting, Reports, Clock, and — FASE 11/12 — the Command Center console).
+ * A single reusable component instead of one bespoke modal per station, and
+ * the same dismiss behavior (Escape, the X button, or the backdrop)
+ * everywhere.
+ *
+ * Rendered via a portal into document.body — required once a caller (the
+ * FASE 11/12 Command Center) is itself nested inside `.qg-floor`, which
+ * carries a CSS `transform` (even `scale(1)` at the default zoom level).
+ * Per spec, any non-`none` transform on an ancestor becomes the containing
+ * block for a `position: fixed` descendant, so without the portal this
+ * panel would position itself relative to the zoomed floor instead of the
+ * real viewport — invisible-but-clickable background elements would then
+ * sit on top of it, silently swallowing clicks on its own buttons. No
+ * mount guard is needed for `document`: every caller renders this
+ * component conditionally (`panel?.type === "x" ? <Panel/> : null`, always
+ * starting closed), so it only ever mounts in response to a client-side
+ * click — never during the server-rendered initial pass.
  */
 export function Panel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   useEffect(() => {
@@ -18,7 +33,7 @@ export function Panel({ title, onClose, children }: { title: string; onClose: ()
     return () => window.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       className="qg-panel-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-foreground/20 p-4"
       onClick={onClose}
@@ -43,6 +58,7 @@ export function Panel({ title, onClose, children }: { title: string; onClose: ()
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 text-sm">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

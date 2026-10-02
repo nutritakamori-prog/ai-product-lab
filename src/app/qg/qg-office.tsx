@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Panel } from "./panel";
 import type { AgentQgState, GlobalQgStatus, WeeklyReport } from "./qg-helpers";
+import { CommandCenterConsole } from "./command-center";
 
 export interface AgentStationData {
   id: string;
@@ -402,6 +403,8 @@ export function QgOffice({ data }: { data: QgOfficeData }) {
                   ariaLabel="Command Center — Head — ver consolidação e recomendação principal"
                   onClick={() => setPanel({ type: "head" })}
                 />
+
+                <CommandCenterConsole />
               </Room>
 
               <PathConnector area="path-a" />

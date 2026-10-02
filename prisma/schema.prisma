@@ -235,6 +235,11 @@ model TestRun {
   agent     Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
   project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   execution AgentExecution? @relation(fields: [executionId], references: [id])
+
+  // FASE 10B.3: a real, optional retest reference a Validation can point to
+  // when a TestRun was the evidence used — never a fabricated link (see
+  // Validation below).
+  retestValidations Validation[]
 }
 
 enum EvaluationMissionRunStatus {
@@ -287,6 +292,11 @@ model EvaluationMissionRun {
   project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   recommendations Recommendation[]
 
+  // FASE 10B.3: a real, optional retest reference a Validation can point to
+  // when this Mission run was the evidence used to validate an
+  // Implementation — never a fabricated link (see Validation below).
+  retestValidations Validation[]
+
   @@index([projectId])
 }
 
@@ -323,9 +333,99 @@ model Recommendation {
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 
-  missionRun EvaluationMissionRun @relation(fields: [missionRunId], references: [id], onDelete: Cascade)
+  missionRun     EvaluationMissionRun @relation(fields: [missionRunId], references: [id], onDelete: Cascade)
+  implementation Implementation?
 
   @@unique([missionRunId, findingIndex])
+}
+
+// ── Recommendation → Implementation → Validation ────────────────────────
+// FASE 10B.3: the one gap the FASE 10A audit found completely missing —
+// nothing persisted the fact that an APPROVED Recommendation was actually
+// acted on, or that a later retest confirmed/refuted it. See
+// docs/DECISIONS.md-style reasoning inline below.
+
+enum ImplementationStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+/**
+ * One row per Recommendation that has moved past a human decision into real
+ * work — created only once that Recommendation is APPROVED (enforced in
+ * src/services/implementations.ts, not here: Postgres has no portable way
+ * to check a sibling row's status without a trigger, which this phase
+ * deliberately avoids). Deliberately NOT a duplicate of ImplementationTask
+ * (src/services/implementation-task.ts) — that stays exactly what it always
+ * was, a rich view derived fresh from a Recommendation + its
+ * EvaluationMissionRun every time it's requested, never persisted. This
+ * table only tracks the fact and state of the work itself: whether it
+ * happened, when, and a short free-text summary — never the task content.
+ *
+ * recommendationId is @unique: at most one Implementation per
+ * Recommendation. A Recommendation whose first implementation attempt
+ * turns out not to have fixed the problem gets a new Validation on the same
+ * Implementation (see below), not a second Implementation row — this phase
+ * deliberately doesn't model multiple independent implementation attempts.
+ *
+ * No direct projectId — same precedent as Recommendation itself just
+ * above, which also has none: isolation is enforced by always joining
+ * through recommendation.missionRun.projectId (see
+ * src/services/implementations.ts), never a denormalized copy that could
+ * drift from it.
+ */
+model Implementation {
+  id               String               @id @default(cuid())
+  recommendationId String               @unique
+  status           ImplementationStatus @default(PENDING)
+  summary          String? // free-text description of what was actually done, optional
+  createdAt        DateTime             @default(now())
+  completedAt      DateTime?
+  updatedAt        DateTime             @updatedAt
+
+  recommendation Recommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+  validations    Validation[]
+}
+
+enum ValidationStatus {
+  PENDING
+  PASSED
+  FAILED
+  INCONCLUSIVE
+}
+
+/**
+ * One retest/validation attempt against an existing Implementation — never
+ * orphaned (implementationId is a required FK, enforced by Postgres).
+ * retestMissionRunId/retestTestRunId are real, optional FKs to the actual
+ * evidence used, when there is any safe one to point to — never a
+ * fabricated link; both stay null when a Validation was recorded without a
+ * corresponding automated re-run (e.g. a human manually confirmed the fix).
+ * An Implementation can have more than one Validation over time (e.g. a
+ * first retest INCONCLUSIVE, a later one PASSED) — never collapsed to a
+ * single latest state.
+ *
+ * onDelete: SetNull on both retest references (unlike the Cascade used
+ * everywhere else in this schema) because a Validation's own recorded
+ * outcome should survive its evidence row being cleaned up later, never be
+ * silently deleted along with it.
+ */
+model Validation {
+  id                 String           @id @default(cuid())
+  implementationId   String
+  status             ValidationStatus @default(PENDING)
+  retestMissionRunId String?
+  retestTestRunId    String?
+  notes              String? // free-text, optional
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  implementation   Implementation        @relation(fields: [implementationId], references: [id], onDelete: Cascade)
+  retestMissionRun EvaluationMissionRun? @relation(fields: [retestMissionRunId], references: [id], onDelete: SetNull)
+  retestTestRun    TestRun?              @relation(fields: [retestTestRunId], references: [id], onDelete: SetNull)
+
+  @@index([implementationId])
 }
 
 // ── Memory ───────────────────────────────────────────────────────────────
