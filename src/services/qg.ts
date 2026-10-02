@@ -1,5 +1,5 @@
 import { listAgents } from "@/services/agents";
-import { getLatestMissionRun, listMissionRuns } from "@/services/evaluation-orchestrator";
+import { getLatestMissionRun, listMissionRuns } from "@/services/evaluation-mission-runs";
 import { listRecommendations } from "@/services/recommendations";
 import type { FinalEvaluationReport } from "@/core/findings/mission-evaluation-report";
 import type { HeadReport } from "@/core/findings/head-report";

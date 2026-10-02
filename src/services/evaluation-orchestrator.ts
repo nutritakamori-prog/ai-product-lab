@@ -13,6 +13,7 @@ import { consolidateMissionEvaluation, type FinalEvaluationReport } from "@/core
 import { synthesizeHeadReport, type HeadReport } from "@/core/findings/head-report";
 import { createRecommendationsForRun } from "@/services/recommendations";
 import { db } from "@/lib/db";
+export { getMissionRun, listMissionRuns, getLatestMissionRun } from "@/services/evaluation-mission-runs";
 
 /**
  * The first, minimal Evaluation Orchestrator: runs an EvaluationMission's
@@ -291,15 +292,3 @@ export async function createAndRunMissionEvaluation(
   }
 }
 
-export function getMissionRun(id: string) {
-  return db.evaluationMissionRun.findUnique({ where: { id } });
-}
-
-export function listMissionRuns() {
-  return db.evaluationMissionRun.findMany({ orderBy: { createdAt: "desc" } });
-}
-
-/** The single most recent Mission run, regardless of status — what the Command Center's header/Head Report block reads from. */
-export function getLatestMissionRun() {
-  return db.evaluationMissionRun.findFirst({ orderBy: { createdAt: "desc" } });
-}
