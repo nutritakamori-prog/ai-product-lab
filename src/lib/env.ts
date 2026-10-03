@@ -20,6 +20,13 @@ const envSchema = z.object({
   // Optional, free-tier alternative to ANTHROPIC_API_KEY — see
   // src/core/models/provider.ts's getModelProvider() for selection order.
   GEMINI_API_KEY: optionalString,
+  // Optional — a real GitHub Personal Access Token (repo + read:user scopes)
+  // for the Operational Brain's GitHub Intelligence (src/services/github-
+  // intelligence.ts) to list the product operator's own repositories.
+  // Distinct from any GITHUB_TOKEN/GH_TOKEN a coding session's shell
+  // environment may already have — those are scoped to that session's own
+  // git-proxy, not valid against the GitHub REST API, and never read here.
+  GITHUB_API_TOKEN: optionalString,
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -5,6 +5,7 @@ import { matchCommand } from "@/core/qg-command-router/qg-command-router";
 import { executeQgCommand, type QgCommandResult } from "@/services/qg-command-router";
 import { executeQgAction } from "@/services/qg-action-executor";
 import { createActionConfirmation, consumeActionConfirmation } from "@/services/qg-action-confirmation";
+import { interpretBrainMessage, type BrainState } from "@/services/operational-brain";
 
 /**
  * FASE 11/12 — QG Runtime. The bridge between the QG's client-side Command
@@ -49,6 +50,28 @@ export async function runQgCommandAction(input: string): Promise<QgCommandAction
     return { status: "OK", result };
   } catch {
     return { status: "ERROR", message: "Não foi possível consultar os dados do LAB agora." };
+  }
+}
+
+/**
+ * Noturno — Operational Brain. Called by the client only when
+ * runQgCommandAction above already returned UNKNOWN_COMMAND (an exact known
+ * phrase is still always resolved by the real, unmodified Command Router
+ * first — this is the fallback layer, not a replacement). Never touches
+ * `executeQgAction`/the confirmation token flow directly: when the Brain
+ * decides a recommendation is ready to become an Implementation Task, it
+ * returns the exact same ACTION_CANDIDATES shape the Command Router already
+ * produces, so the existing confirm UI (and its real human-authorization
+ * requirement) handles it unchanged.
+ */
+export type QgBrainActionResult = { status: "OK"; reply: Awaited<ReturnType<typeof interpretBrainMessage>> } | { status: "ERROR"; message: string };
+
+export async function runQgBrainMessageAction(message: string, state: BrainState): Promise<QgBrainActionResult> {
+  try {
+    const result = await interpretBrainMessage(message, state);
+    return { status: "OK", reply: result };
+  } catch {
+    return { status: "ERROR", message: "Não foi possível processar essa mensagem agora." };
   }
 }
 

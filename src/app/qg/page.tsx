@@ -7,7 +7,7 @@ import {
   AGENT_STATE_LABEL,
   GLOBAL_STATUS_LABEL,
 } from "./qg-helpers";
-import { QgOffice, type AgentStationData, type QgOfficeData } from "./qg-office";
+import { LivingLabRoom, type AgentStationData, type QgOfficeData } from "./living-lab-room";
 
 export const dynamic = "force-dynamic";
 
@@ -104,5 +104,5 @@ export default async function QgPage() {
     weeklyReport,
   };
 
-  return <QgOffice data={data} />;
+  return <LivingLabRoom data={data} />;
 }

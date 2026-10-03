@@ -7,6 +7,15 @@
   --border: #e5e5e7;
   --surface: #fafafa;
   --accent: #0071e3;
+
+  /* LAB Living Interface (FASE 1) — the QG is no longer a room, it's an
+     organism. Dark/cosmic always, independent of the OS color scheme
+     (prefers-color-scheme below only affects the rest of the product). */
+  --qg-space: #05060f;
+  --qg-space-deep: #020208;
+  --qg-space-line: rgba(255, 255, 255, 0.06);
+  --qg-gold: #ffb020;
+  --qg-gold-deep: #e0911a;
 }
 
 @theme inline {
@@ -37,342 +46,470 @@ body {
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Renders a decorative count via CSS generated content instead of a real text
-   node, so it doesn't show up as a redundant bare number in getText()/
-   textContent/innerText extractions — only the labeled count next to it does.
-   aria-hidden stays on the element as defense in depth for assistive tech. */
-.qg-decorative-count::before {
-  content: attr(data-count);
-}
-
-/* FASE 9D-1 — LAB QG floor plan. A faint blueprint-style grid (two layered
-   1px lines every 28px, using the existing border token) so the office reads
-   as an actual floor plan instead of a plain dashboard surface. No new color
-   token, no image asset. */
-.qg-floor {
-  background-color: var(--background);
-  background-image:
-    linear-gradient(90deg, var(--border) 1px, transparent 1px),
-    linear-gradient(0deg, var(--border) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-
-/* An enclosed "room" of the floor plan (Head, the specialists' area) — a
-   thicker border reads as a wall rather than a flat card edge, setting it
-   apart from the open floor around it. Individual objects/stations on the
-   floor reuse this same class for their own walls, just without a nameplate
-   (see .qg-room-label) since they're furniture, not rooms. */
-.qg-room {
-  position: relative;
-  /* FASE 9E.2 Bloco A — every building sits above the circulation paths
-     (see .qg-path) in its own local stacking context, so a path segment
-     that geometrically reaches into a building's box is genuinely painted
-     over and disappears behind that wall, instead of floating on top of it. */
-  z-index: 1;
-  border: 2px solid var(--border);
-  border-radius: 0.75rem;
-  background-color: var(--surface);
-  /* FASE 9E.1 — a very subtle lift off the floor so a building reads as a
-     volume sitting on the plan instead of a flat line-drawing rectangle.
-     Kept small on purpose: this is structural depth, not a UI "card". */
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-
-/* FASE 9E.1 — the Command Center is the one building with top-level visual
-   hierarchy (see Room's size="lg"): a visibly stronger elevation than every
-   other building, reinforcing "this is the dominant volume" purely through
-   depth, never through a bigger or louder color. */
-.qg-room-command {
-  box-shadow: 0 6px 20px rgba(0, 113, 227, 0.1);
-}
-
-/* FASE 9E.2 Bloco A — a very soft halo behind the Command Center only,
-   marking it as the Campus's illuminated core. Purely decorative (behind
-   the room's own opaque background, so it never affects legibility of its
-   content) — the existing --accent token at very low opacity, no new
-   color, no glow/neon: it should be barely noticeable up close and only
-   read as "this building feels lit" at a glance. */
-.qg-room-command::before {
-  content: "";
-  position: absolute;
-  inset: -2.5rem;
-  z-index: -1;
-  border-radius: inherit;
-  background: radial-gradient(closest-side, rgba(0, 113, 227, 0.08), transparent 70%);
-  pointer-events: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  .qg-room-command::before {
-    background: radial-gradient(closest-side, rgba(41, 151, 255, 0.14), transparent 70%);
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  .qg-room {
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-  }
-  .qg-room-command {
-    box-shadow: 0 6px 24px rgba(41, 151, 255, 0.18);
-  }
-}
-
-/* FASE 9E.1 — a small platform under an Agent Wing station, distinguishing
-   it as its own workstation rather than an icon floating in a bare grid
-   cell. Deliberately not used for the Head (its Command Center room already
-   carries that distinction). */
-.qg-desk-surface-bay {
-  background-color: var(--background);
-  border: 1px solid var(--border);
-}
-
-/* The small plaque naming an actual room on the floor plan. */
-.qg-room-label {
-  position: absolute;
-  top: -0.6rem;
-  left: 0.9rem;
-  padding: 0 0.5rem;
-  background-color: var(--background);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-/* FASE 9E.1 — a short, visibly-real segment of circulation connecting two
-   buildings on the Campus plan. Previously a 1px solid line in the same
-   pale --border tone as the floor grid itself, which made it disappear in
-   the real rendering (see Fase 9E.1's before screenshot) — this is the
-   fix: a slightly thicker dashed line (reads as a path, not a stray rule)
-   with a small round junction node at each end where it touches a
-   building's wall, so the connection is perceptible without clicking.
-   Still pure CSS, no motion, monochrome. */
-.qg-path {
-  position: relative;
-  /* FASE 9E.2 Bloco A — below every building's own z-index: 1 (see
-     .qg-room), so the stub spans below genuinely go "behind the wall"
-     instead of drawing on top of it. */
-  z-index: 0;
-  width: 2px;
-  height: 24px;
-  margin: 0 auto;
-  background-image: linear-gradient(var(--border), var(--border));
-  background-size: 2px 7px;
-  background-repeat: repeat-y;
-}
-
-.qg-path::before,
-.qg-path::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background-color: var(--muted);
-}
-
-.qg-path::before {
-  top: -3px;
-}
-
-.qg-path::after {
-  bottom: -3px;
-}
-
-/* FASE 9E.2 Bloco A — the part of the conduit that actually disappears
-   behind a building's wall. Deliberately longer than the gap between two
-   buildings is ever expected to be, so it reliably reaches into the
-   neighboring building's own box and gets painted over there (z-index: 1
-   on .qg-room beats this element's parent .qg-path at z-index: 0) — the
-   junction dot (.qg-path::before/::after) stays outside that overlap, so
-   it's always visible right where the path meets the wall. */
-.qg-path-stub {
-  position: absolute;
-  left: 50%;
-  width: 2px;
-  height: 18px;
-  transform: translateX(-50%);
-  background-image: linear-gradient(var(--border), var(--border));
-  background-size: 2px 7px;
-  background-repeat: repeat-y;
-}
-
-.qg-path-stub-top {
-  top: -18px;
-}
-
-.qg-path-stub-bottom {
-  bottom: -18px;
-}
-
-/* FASE 9E.2 Bloco A — the Campus as one deliberate plan instead of a
-   sequence of blocks stacked "because they're next in the list". Mobile
-   (and any narrow container — see .qg-floor's container-type) gets a
-   single column, preserving the exact required reading order. Once the
-   floor is genuinely wide enough, Agent Wing pairs with Discovery Wing and
-   Workshop pairs with Test Lab as real visual pairs, and Archive moves off
-   the main "command → agent/discovery → intelligence → workshop/test"
-   spine entirely, sharing a row with the peripheral tools instead — no
-   path connector ever leads to it (see the JSX: there is no PathConnector
-   between the workshop/testlab row and archive/tools). */
-.qg-plan {
-  display: grid;
-  /* minmax(0, 1fr), not plain 1fr — a grid item's implicit min-width is its
-     own content's natural size, which would otherwise force this track
-     (and the floor around it) wider than the viewport on mobile instead of
-     actually wrapping/truncating that content. */
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.625rem;
-  grid-template-areas:
-    "command"
-    "path-a"
-    "cycle"
-    "agent"
-    "discovery"
-    "path-b"
-    "intelligence"
-    "path-c"
-    "workshop"
-    "testlab"
-    "archive"
-    "tools";
-}
-
-@container (min-width: 56rem) {
-  .qg-plan {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas:
-      "command      command"
-      "path-a       path-a"
-      "cycle        cycle"
-      "agent        discovery"
-      "path-b       path-b"
-      "intelligence intelligence"
-      "path-c       path-c"
-      "workshop     testlab"
-      "archive      tools";
-  }
-}
-
 /* ============================================================
-   FASE 9E.2 Bloco B — per-building visual identity.
-   Every rule below is purely additive on top of the Bloco A structure
-   (.qg-plan / .qg-room / .qg-path never change here): each class only adds
-   a background pattern, a pseudo-element, or a border to an element that
-   Bloco A already placed and sized. All patterns use only existing tokens
-   (--border, --surface, --background, --accent, --muted), so light/dark
-   mode both work with zero extra rules, nothing animates so
-   prefers-reduced-motion needs no new override, and nothing depends on an
-   external image/font.
+   LAB LIVING INTERFACE (FASE 1) — replaces the room/furniture metaphor
+   above with a single living organism: the Core (WebGL, see lab-core.tsx)
+   at the center, agent orbs around it, a minimal command dock at the
+   bottom, and a dark, nearly-empty cosmic space otherwise. Nothing here
+   is the sole carrier of a real state — every orb/badge/synthesis value
+   has a plain-text equivalent right next to or inside it (name + state
+   label on every orb, numbers with their own labels in the synthesis and
+   in each MinimalLink's aria-label), so prefers-reduced-motion or a CSS
+   fallback never removes information, only movement.
    ============================================================ */
 
-/* DISCOVERY WING — investigation/exploration: a faint dot-grid instead of
-   the plain surface fill, reading as a "signal board" collecting scattered
-   data points, distinct from every other building's flat fill. */
-.qg-room-discovery {
-  background-image: radial-gradient(var(--border) 1px, transparent 1px);
-  background-size: 14px 14px;
+.qg-living-space {
+  position: relative;
+  min-height: 100%;
+  background: radial-gradient(ellipse 80% 60% at 50% 38%, color-mix(in srgb, var(--qg-space) 70%, #0d1a4a) 0%, var(--qg-space) 55%, var(--qg-space-deep) 100%);
+  color: #f2f4ff;
 }
 
-/* INTELLIGENCE CENTER — synthesis/depth: two faint panels stacked behind
-   the real one (offset, lower opacity), reading as "information being
-   layered and cross-referenced" without any shadow or gradient effect —
-   just two more of the same flat, bordered surfaces peeking out behind. */
-.qg-room-intelligence::before,
-.qg-room-intelligence::after {
-  content: "";
+.qg-living-header {
+  position: relative;
+  z-index: 2;
+}
+
+.qg-living-stage {
+  position: relative;
+  padding: 1.5rem 1.5rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+/* The Core's own stage — a square-ish area the Core fills and the agent
+   ring is positioned against (every orb's left/top % in living-lab-room.tsx
+   is relative to this box, not the viewport). Sized as a % of its own flex
+   parent (never vmin/vw) so it shrinks correctly inside whatever column
+   width the page's AppShell sidebar leaves available, instead of overflowing
+   it on narrow screens. */
+.qg-core-stage {
+  position: relative;
+  width: min(85%, 32rem);
+  aspect-ratio: 1;
+  margin-top: 0.5rem;
+}
+
+/* !important because this targets LabCore's own Canvas wrapper, which R3F
+   sets inline to `position: relative; width: 100%; height: 100%` — an inline
+   style that a plain external rule can never outrank. Forcing width/height
+   to auto lets the inset percentages (not R3F's own 100%/100%) size the box,
+   which is what actually makes the Canvas a well-defined square instead of
+   collapsing to <canvas>'s bare intrinsic 300x150 default. */
+.qg-core-stage > :first-child {
+  position: absolute !important;
+  inset: 12% !important;
+  width: auto !important;
+  height: auto !important;
+}
+
+/* CSS-only fallback Core (no WebGL, still loading, or a render error) — a
+   breathing circle, never a static dead dot: the organism stays visibly
+   alive even on the cheapest rendering path. */
+.qg-core-fallback {
   position: absolute;
-  inset: 0;
-  border: 2px solid var(--border);
-  border-radius: 0.75rem;
-  background-color: var(--surface);
-  z-index: -1;
+  inset: 12%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.qg-room-intelligence::before {
-  transform: translate(4px, 4px);
-  opacity: 0.6;
-}
-
-.qg-room-intelligence::after {
-  transform: translate(8px, 8px);
-  opacity: 0.35;
-}
-
-/* AGENT WING — an operational wing/bay: the 7 stations sit inside a rail
-   (dashed top/bottom border), reading as one shared bench rather than a
-   loose grid of unrelated icons. The stations themselves are untouched. */
-.qg-agent-grid {
-  padding-block: 0.625rem;
-  border-block: 1px dashed var(--border);
-}
-
-/* WORKSHOP — a workbench: a thin ruled strip along the bottom edge, like
-   tick marks on a work surface, instead of a flat fill. */
-.qg-room-workshop {
-  background-image: repeating-linear-gradient(90deg, var(--border) 0, var(--border) 1px, transparent 1px, transparent 8px);
-  background-repeat: repeat-x;
-  background-position: bottom;
-  background-size: 8px 6px;
-}
-
-/* TEST LAB — a modular test grid: small, even cells instead of Workshop's
-   linear ticks or the floor's own larger 28px grid, reading as "many small
-   verifications" rather than "one continuous surface". */
-.qg-room-testlab {
-  background-image:
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px);
-  background-size: 10px 10px;
-}
-
-/* ARCHIVE — memory/record: thin horizontal ledger lines instead of a flat
-   fill, reading as stacked pages/registries — quieter than every
-   operational building, matching its already-reduced scale and opacity
-   from Bloco A. */
-.qg-room-archive {
-  background-image: repeating-linear-gradient(var(--background) 0, var(--background) 7px, var(--border) 7px, var(--border) 8px);
-}
-
-/* FASE 9E — the short, permanent caption naming what real question a Campus
-   building answers, shown right under its nameplate. Never the only signal
-   (the building's own aria-label always states the same thing), just the
-   always-visible reinforcement the Fase 9E spec asks for instead of hover. */
-.qg-room-hint {
-  margin: 0 0 0.75rem;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-/* The thin "desk edge" beneath an agent's monitor, standing in for the desk
-   surface itself. */
-.qg-desk-surface {
-  height: 4px;
+.qg-core-fallback-ring {
+  position: absolute;
+  inset: 8%;
   border-radius: 999px;
-  background-image: linear-gradient(90deg, transparent, var(--border), transparent);
+  border: 1px solid rgba(143, 216, 255, 0.35);
+  animation: qg-core-fallback-spin 18s linear infinite;
 }
 
-/* FASE 9D-2, item 2 — a more intentional "breathing" LED for WORKING than
-   Tailwind's default animate-pulse (2s, steeper curve): only ever applied
-   while the underlying AgentQgState is actually WORKING (see STATE_DOT in
-   qg-office.tsx) — CSS-only, no React timer/state. */
-.qg-led-breathe {
-  animation: qg-led-breathe 1.6s ease-in-out infinite;
+.qg-core-fallback-pulse {
+  width: 55%;
+  height: 55%;
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 42%, #bff6ff 0%, #4d6fe0 55%, #1a3dd8 100%);
+  box-shadow: 0 0 60px 10px rgba(127, 227, 255, 0.45);
+  animation: qg-core-fallback-breathe 3.2s ease-in-out infinite;
 }
 
-@keyframes qg-led-breathe {
+@keyframes qg-core-fallback-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes qg-core-fallback-breathe {
   0%,
   100% {
-    opacity: 1;
+    transform: scale(0.94);
+    opacity: 0.88;
   }
   50% {
-    opacity: 0.45;
+    transform: scale(1.04);
+    opacity: 1;
   }
+}
+
+/* The ring of agent orbs around the Core — each orb is positioned by its
+   own inline left/top % (trig, computed in living-lab-room.tsx), so this
+   element is just the shared coordinate box. */
+.qg-agent-ring {
+  position: absolute;
+  inset: 0;
+}
+
+.qg-agent-orb {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  padding: 0.25rem;
+  cursor: pointer;
+}
+
+/* Position (x/y approach-the-core nudge) and scale are owned by Framer
+   Motion (see AgentOrb in living-lab-room.tsx) since both animate the same
+   `transform` property this class used to also set — splitting it between
+   CSS and JS would have one silently overwrite the other. This rule only
+   owns the breathing (filter), which Framer Motion never touches. */
+.qg-agent-orb-core {
+  display: block;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--orb-color) 85%, white 15%);
+  box-shadow: 0 0 16px 2px var(--orb-glow);
+  animation: qg-orb-breathe var(--orb-speed, 4s) ease-in-out infinite;
+  transition: background 0.4s ease, box-shadow 0.4s ease;
+}
+
+@keyframes qg-orb-breathe {
+  0%,
+  100% {
+    filter: brightness(0.92);
+  }
+  50% {
+    filter: brightness(1.15);
+  }
+}
+
+.qg-agent-orb-label {
+  max-width: 5.5rem;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #f2f4ff;
+  text-align: center;
+  text-wrap: balance;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.qg-agent-orb-state {
+  max-width: 5.5rem;
+  font-size: 9px;
+  color: rgba(242, 244, 255, 0.65);
+  text-align: center;
+}
+
+/* FASE 2 — ReasoningGraph: a straight spoke from the Core to each real
+   agent, nothing else (no mesh, no force-directed layout) — see
+   reasoning-graph.tsx. Sits between the Core (behind) and the agent ring
+   (in front): decorative only, aria-hidden, never the sole carrier of any
+   fact (see the role="status" region in living-lab-room.tsx). */
+.qg-reasoning-graph {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.qg-graph-spoke line {
+  stroke: rgba(143, 216, 255, 0.18);
+  stroke-width: 0.25;
+  vector-effect: non-scaling-stroke;
+  transition: stroke 0.6s ease;
+}
+
+.qg-graph-spoke-active line {
+  stroke: rgba(159, 232, 255, 0.75);
+}
+
+.qg-graph-flow-dot {
+  fill: #bff6ff;
+  animation: qg-flow-travel 1.1s ease-out;
+}
+
+@keyframes qg-flow-travel {
+  0% {
+    transform: translate(0, 0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy));
+    opacity: 0;
+  }
+}
+
+/* Claude's node — latent by default (not rendered at all, see
+   reasoning-graph.tsx), only mounted for a few seconds right after a real
+   CREATE_IMPLEMENTATION/CREATE_VALIDATION Server Action returns. Positioned
+   away from the agent ring so it never reads as an 8th orbiting agent. */
+.qg-graph-claude-node line {
+  stroke: rgba(176, 143, 255, 0.6);
+  stroke-width: 0.3;
+  vector-effect: non-scaling-stroke;
+}
+
+.qg-graph-claude-node circle {
+  fill: #b08fff;
+  animation: qg-claude-node-in 0.4s ease-out;
+}
+
+@keyframes qg-claude-node-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+}
+
+.qg-claude-label {
+  position: absolute;
+  left: 50%;
+  bottom: -1.25rem;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 600;
+  color: #cdb8ff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  animation: qg-claude-node-in 0.4s ease-out;
+}
+
+.qg-claude-label-failed {
+  color: #ff8a3d;
+}
+
+/* Living Lab — GitHub's node. Same pattern as Claude's label above (latent
+   by default, mounted only for a few seconds right after the Brain actually
+   queried GitHub this turn — see living-lab-room.tsx's `activity.github`),
+   positioned at the opposite edge of the stage so the two never collide.
+   The "not configured" variant is a neutral, dimmer tone — this is an
+   honest absence, not a failure, so it never reuses the red/orange failed
+   color. */
+.qg-github-label {
+  position: absolute;
+  left: 50%;
+  top: -1.25rem;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 600;
+  color: #8fe3b0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  animation: qg-claude-node-in 0.4s ease-out;
+}
+
+.qg-github-label-unconfigured {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* The compact, non-radial stand-in for narrow screens (see AgentChip in
+   living-lab-room.tsx) — hidden by default, shown only below the breakpoint
+   where the radial ring's own labels would start overlapping each other. */
+.qg-agent-list-mobile {
+  display: none;
+}
+
+.qg-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 11px;
+  color: #f2f4ff;
+  cursor: pointer;
+}
+
+.qg-agent-chip-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+/* Below ~480px a 7-orb ring has no room to breathe — its labels start
+   overlapping each other, made worse by the AppShell's fixed sidebar
+   (pre-existing, out of scope here) squeezing the column further. A
+   wrapped row of small chips (AgentChip) stays legible where the ring
+   wouldn't; same data, same click target, different shape. */
+@media (max-width: 30rem) {
+  .qg-agent-ring {
+    display: none;
+  }
+
+  .qg-agent-list-mobile {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    max-width: 100%;
+  }
+
+  .qg-core-stage {
+    width: min(60%, 32rem);
+  }
+}
+
+/* Contextual synthesis text beneath the Core — the loudest line in the
+   whole interface whenever a Recommendation is pending. */
+.qg-synthesis {
+  position: relative;
+  z-index: 2;
+  max-width: 34rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.qg-synthesis-alert {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--qg-gold);
+}
+
+.qg-synthesis-line {
+  font-size: 0.875rem;
+  color: #f2f4ff;
+}
+
+.qg-synthesis-meta {
+  font-size: 0.75rem;
+  color: rgba(242, 244, 255, 0.6);
+}
+
+.qg-synthesis-cta {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--qg-gold);
+  text-decoration: underline;
+}
+
+.qg-synthesis-more {
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  color: rgba(242, 244, 255, 0.5);
+  background: none;
+  border: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The command dock — the one place the brief wants an actual interface. Kept
+   in normal flow (not pinned absolute) so it never overlaps the minimal
+   links row below it regardless of viewport height or content length. */
+.qg-command-dock {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 0 1rem;
+}
+
+/* Re-skins the unmodified CommandCenterConsole for the dark/cosmic space by
+   overriding the same tokens its existing Tailwind classes already consume
+   — zero changes to command-center.tsx itself. */
+.qg-command-scope {
+  width: 100%;
+  max-width: 34rem;
+  --background: #0b0f24;
+  --foreground: #f2f4ff;
+  --muted: #8d95c2;
+  --border: #272e57;
+  --surface: #11173a;
+  --accent: #6fe0ff;
+  border-radius: 0.75rem;
+  box-shadow: 0 0 0 1px var(--border), 0 20px 40px -20px rgba(0, 0, 0, 0.6);
+}
+
+/* The secondary, low-priority feature links (Entrada, Relógio, Missions,
+   Workshop, Mesa de reunião, Arquivo, Relatórios, Findings) — real
+   functionality, kept reachable but deliberately quiet so it never
+   competes with the Core. */
+.qg-minimal-links {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 1rem;
+  max-width: 40rem;
+}
+
+.qg-minimal-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  color: rgba(242, 244, 255, 0.55);
+  background: none;
+  border: none;
+  padding: 0.2rem 0.3rem;
+  cursor: pointer;
+}
+
+.qg-minimal-link:hover {
+  color: #f2f4ff;
+}
+
+.qg-quickview {
+  position: relative;
+  z-index: 2;
+  border-left: 1px solid rgba(242, 244, 255, 0.12);
+  background: rgba(11, 15, 36, 0.6);
+  color: #f2f4ff;
+}
+
+/* The slim, discreet wayfinding strip above the Core — a small terminal
+   readout, never a SaaS nav bar. The protagonist is the Core. Colors are
+   hardcoded (not var(--muted)/var(--foreground)) because the living space
+   is always dark/cosmic, independent of the OS color scheme those tokens
+   follow elsewhere in the product. */
+.qg-navigator {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.qg-navigator a,
+.qg-navigator span {
+  color: rgba(242, 244, 255, 0.55);
+}
+
+.qg-navigator a:hover {
+  color: #f2f4ff;
 }
 
 /* FASE 9D-2, item 3 — a short (~180ms) entrance for the shared Panel so it
@@ -402,14 +539,23 @@ body {
   }
 }
 
-/* FASE 9D-2 accessibility requirement — every animation added in this phase
-   is purely decorative reinforcement of a state/transition already
-   communicated in text (aria-label, dialog content, or the existing
-   STATE_RING/STATE_DOT color coding), so turning it off here never removes
-   information: the LED still shows WORKING via its base color, and the
-   Panel still opens instantly. */
+/* Every animation added for the Living Interface is purely decorative
+   reinforcement of a state already communicated in text — the orb's
+   aria-label + visible state caption, the fallback Core's breathing circle
+   vs. the WebGL Core's own shader "breathing", the synthesis text, the
+   role="status" region announcing the same events the ReasoningGraph/Core
+   dramatize — so turning it off here never removes information, only
+   movement. The WebGL Core's own shader animation (uActivity/uIntensity)
+   is a known gap not covered by this media query — see the final report's
+   accessibility notes. */
 @media (prefers-reduced-motion: reduce) {
-  .qg-led-breathe,
+  .qg-agent-orb-core,
+  .qg-core-fallback-ring,
+  .qg-core-fallback-pulse,
+  .qg-graph-flow-dot,
+  .qg-graph-claude-node circle,
+  .qg-claude-label,
+  .qg-github-label,
   .qg-panel-backdrop-in,
   .qg-panel-dialog-in {
     animation: none;

@@ -11,18 +11,19 @@ import { X } from "lucide-react";
  * the same dismiss behavior (Escape, the X button, or the backdrop)
  * everywhere.
  *
- * Rendered via a portal into document.body — required once a caller (the
- * FASE 11/12 Command Center) is itself nested inside `.qg-floor`, which
- * carries a CSS `transform` (even `scale(1)` at the default zoom level).
- * Per spec, any non-`none` transform on an ancestor becomes the containing
- * block for a `position: fixed` descendant, so without the portal this
- * panel would position itself relative to the zoomed floor instead of the
- * real viewport — invisible-but-clickable background elements would then
- * sit on top of it, silently swallowing clicks on its own buttons. No
- * mount guard is needed for `document`: every caller renders this
- * component conditionally (`panel?.type === "x" ? <Panel/> : null`, always
- * starting closed), so it only ever mounts in response to a client-side
- * click — never during the server-rendered initial pass.
+ * Rendered via a portal into document.body rather than inline. Per spec,
+ * any non-`none` CSS `transform` on an ancestor becomes the containing
+ * block for a `position: fixed` descendant, so an inline fixed-position
+ * modal breaks the moment one of its ancestors gets one — exactly what
+ * happened with the old zoomable QG room, and exactly what a future
+ * Framer Motion `motion.div` (already an approved Living Interface
+ * dependency, not yet used by any current caller) or the agent orbs'
+ * own breathing transform would risk again. The portal makes every
+ * caller immune to that regardless of what wraps it. No mount guard is
+ * needed for `document`: every caller
+ * renders this component conditionally (`panel?.type === "x" ? <Panel/> :
+ * null`, always starting closed), so it only ever mounts in response to a
+ * client-side click — never during the server-rendered initial pass.
  */
 export function Panel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   useEffect(() => {

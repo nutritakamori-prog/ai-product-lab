@@ -3,6 +3,7 @@ import { setModelProviderForTesting, type ModelProvider } from "@/core/models/pr
 import { MockModelProvider } from "@/core/models/mock-provider";
 import { planTask, validatePlannerOutput } from "./task-planner";
 import { executePlan } from "./plan-executor";
+import { DEFAULT_MISSION_TASK } from "./operational-brain";
 
 /** Returns outputs[callIndex] (last one repeats past the end) — no real LLM call. */
 function sequentialProvider(outputs: unknown[]): ModelProvider {
@@ -62,6 +63,29 @@ describe("planTask", () => {
     await expect(planTask("Abra https://exemplo.com e verifique se existe um botão de cadastro.")).rejects.toThrow(
       "network error",
     );
+  });
+
+  /**
+   * Regression for the real BLOCO 5 bug found tonight: the Operational
+   * Brain was passing the user's own raw conversational message (never a
+   * concrete browser instruction) as a mission's `task`, so the Planner's
+   * own "if it doesn't clearly describe a URL and a check, return no
+   * actions" rule reliably BLOCKED every Brain-triggered mission. Proves
+   * the Brain's new generic default task (operational-brain.ts's
+   * DEFAULT_MISSION_TASK) — used instead of the raw message, with the URL
+   * supplied separately via context, exactly as a resolved mission target
+   * always provides it — actually produces a real, executable Plan via the
+   * real, unmocked Mock provider (no ANTHROPIC_API_KEY configured here).
+   */
+  it("5. the Operational Brain's generic default mission task produces a real Plan, with the URL taken from context", async () => {
+    setModelProviderForTesting(new MockModelProvider());
+
+    const plan = await planTask(DEFAULT_MISSION_TASK, { url: "http://localhost:3000" });
+
+    expect(plan).toEqual([
+      { action: "navigate", target: "http://localhost:3000" },
+      { action: "getText", target: "body" },
+    ]);
   });
 
   it("4b. a provider that resolves with no data (schema parse failure) also throws — never becomes null", async () => {

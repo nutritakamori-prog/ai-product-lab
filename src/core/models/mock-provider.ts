@@ -174,6 +174,17 @@ const MOCK_PLAN_TASK_PATTERN = /abra\s+(\S+)\s+e\s+verifique\s+se\s+existe\s+(.+
 const MOCK_PLAN_3_STEP_PATTERN =
   /abra\s+(\S+)\s+e\s+clique\s+no\s+bot[aã]o\s+entrar\s+e\s+verifique\s+se\s+existe\s+o\s+bot[aã]o\s+continuar[.!]?(?:\n|$)/i;
 
+/**
+ * A third, still-hardcoded known shape: the Operational Brain's own
+ * DEFAULT_MISSION_TASK (operational-brain.ts) — a generic "open the home
+ * page and read it" task with no URL of its own, since it's always given
+ * one separately via buildUserPrompt()'s "available separately" line below.
+ * Maps to navigate + getText("body"), the same two action types a real
+ * model would be expected to pick for this exact sentence.
+ */
+const MOCK_PLAN_GENERIC_PAGE_PATTERN =
+  /abra a p[áa]gina inicial do sistema e obtenha o texto completo da p[áa]gina[\s\S]*available separately:\s*(\S+)/i;
+
 function mockPlanActions(prompt: string): { actions: unknown[] } {
   const threeStepMatch = prompt.match(MOCK_PLAN_3_STEP_PATTERN);
   if (threeStepMatch) {
@@ -182,6 +193,16 @@ function mockPlanActions(prompt: string): { actions: unknown[] } {
         { action: "navigate", target: threeStepMatch[1].trim() },
         { action: "click", target: "#entrar" },
         { action: "find", target: "botão Continuar" },
+      ],
+    };
+  }
+
+  const genericPageMatch = prompt.match(MOCK_PLAN_GENERIC_PAGE_PATTERN);
+  if (genericPageMatch) {
+    return {
+      actions: [
+        { action: "navigate", target: genericPageMatch[1].trim() },
+        { action: "getText", target: "body" },
       ],
     };
   }

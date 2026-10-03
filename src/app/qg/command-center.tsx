@@ -3,7 +3,14 @@
 import { useState, useTransition } from "react";
 import { ArrowRight } from "lucide-react";
 import { Panel } from "./panel";
-import { confirmQgActionAction, requestQgActionConfirmationAction, runQgCommandAction, type QgCommandActionResult } from "./qg-command-actions";
+import {
+  confirmQgActionAction,
+  requestQgActionConfirmationAction,
+  runQgBrainMessageAction,
+  runQgCommandAction,
+  type QgCommandActionResult,
+} from "./qg-command-actions";
+import { INITIAL_BRAIN_STATE, type BrainState, type BrainActivitySignal } from "@/services/brain-state";
 import { QG_COMMANDS, type QgActionId } from "@/core/qg-command-router/qg-command-router";
 import type {
   AgentActivityResult,
@@ -43,23 +50,79 @@ type ConfirmationState =
   | { status: "done"; title: string; message: string; failed: boolean }
   | { status: "cancelled"; title: string };
 
-export function CommandCenterConsole() {
+/**
+ * FASE 2 — purely additive instrumentation for the Living Interface's visual
+ * choreography (LivingLabRoom reacts to a real command/action resolving by
+ * animating the Core/agents/ReasoningGraph). `onActivity` is optional and
+ * defaults to nothing: every existing caller, and every existing test,
+ * behaves identically without it. It is called at the exact same points
+ * this component already changes its own pending/result state — it reports
+ * those transitions outward, it never changes what they do or when they
+ * happen. The command matching, routing, Server Action calls, and
+ * confirmation flow below are completely unchanged.
+ */
+export type CommandCenterActivity =
+  | { phase: "pending" }
+  /**
+   * `brainSignal` is only ever set when this result came from the
+   * Operational Brain (see runCommand() below) — its presence (even with
+   * empty agentIds) is what tells LivingLabRoom "trust this real-time
+   * fact-sheet instead of the page's own last-known-state heuristic." An
+   * exact-command result never sets it, unchanged from before.
+   */
+  | { phase: "result"; commandResult: QgCommandActionResult; brainSignal?: BrainActivitySignal }
+  /** The moment a real confirmation token round-trip resolved and the Panel is now showing "Confirmar ação" — the system has reached a point only a human can move past. */
+  | { phase: "awaiting-decision" }
+  /** The human explicitly cancelled — distinct from "action-done" (which already covers a real confirm). */
+  | { phase: "decision-resolved" }
+  | { phase: "action-done"; action: QgActionId; failed: boolean };
+
+export function CommandCenterConsole({ onActivity }: { onActivity?: (activity: CommandCenterActivity) => void } = {}) {
   const [open, setOpen] = useState(false);
   const [commandInput, setCommandInput] = useState("");
   const [lastCommand, setLastCommand] = useState<string | null>(null);
   const [commandResult, setCommandResult] = useState<QgCommandActionResult | null>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationState>(null);
   const [isPending, startTransition] = useTransition();
+  // Noturno — Operational Brain. Held client-side (the server stays
+  // stateless, same as every other Server Action here) so a follow-up like
+  // "o que vocês acharam?" knows which mission/project the previous turn was
+  // about. Resets on page reload — a persisted, multi-device conversation
+  // history is a deliberate next step, not built tonight (see the final
+  // report). `brainReply` is the plain-text conversational line shown above
+  // the result; its `structured` field (when present) is funneled into the
+  // exact same `commandResult` state the Command Router already renders —
+  // this component gains no second result-rendering path.
+  const [brainState, setBrainState] = useState<BrainState>(INITIAL_BRAIN_STATE);
+  const [brainReply, setBrainReply] = useState<string | null>(null);
 
   /** The Quick Action buttons call this with their own canonical phrase, so they run through the exact same matchCommand() + executeQgCommand() path as free text — never a shortcut that bypasses the Router. */
   function runCommand(text: string) {
     setLastCommand(text);
     setCommandResult(null);
+    setBrainReply(null);
     setConfirmation(null);
     setOpen(true);
+    onActivity?.({ phase: "pending" });
     startTransition(async () => {
       const result = await runQgCommandAction(text);
+
+      if (result.status === "UNKNOWN_COMMAND") {
+        const brain = await runQgBrainMessageAction(text, brainState);
+        if (brain.status === "ERROR") {
+          setCommandResult(result);
+          onActivity?.({ phase: "result", commandResult: result });
+          return;
+        }
+        setBrainReply(brain.reply.text);
+        setBrainState(brain.reply.state);
+        setCommandResult(brain.reply.structured ? { status: "OK", result: brain.reply.structured } : null);
+        onActivity?.({ phase: "result", commandResult: result, brainSignal: brain.reply.signal });
+        return;
+      }
+
       setCommandResult(result);
+      onActivity?.({ phase: "result", commandResult: result });
     });
   }
 
@@ -86,12 +149,14 @@ export function CommandCenterConsole() {
         return;
       }
       setConfirmation({ status: "awaiting", action, targetId, title, impact, confidence, token: confirmationRequest.token });
+      onActivity?.({ phase: "awaiting-decision" });
     });
   };
 
   function cancelConfirmation() {
     if (confirmation?.status === "awaiting") {
       setConfirmation({ status: "cancelled", title: confirmation.title });
+      onActivity?.({ phase: "decision-resolved" });
     }
   }
 
@@ -101,7 +166,9 @@ export function CommandCenterConsole() {
     setConfirmation({ status: "executing", action, targetId, title });
     startTransition(async () => {
       const result = await confirmQgActionAction(action, targetId, token);
-      setConfirmation({ status: "done", title, message: result.message, failed: result.status === "ERROR" });
+      const failed = result.status === "ERROR";
+      setConfirmation({ status: "done", title, message: result.message, failed });
+      onActivity?.({ phase: "action-done", action, failed });
     });
   }
 
@@ -152,6 +219,15 @@ export function CommandCenterConsole() {
           <div className="mt-3 border-t border-border pt-3">
             {confirmation ? (
               <ConfirmationView state={confirmation} isPending={isPending} onConfirm={confirmAction} onCancel={cancelConfirmation} />
+            ) : brainReply !== null ? (
+              <div>
+                <p className="whitespace-pre-line text-xs">{brainReply}</p>
+                {commandResult ? (
+                  <div className="mt-3 border-t border-border pt-3">
+                    <CommandResultView isPending={isPending} actionResult={commandResult} onSelectCandidate={selectCandidate} />
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <CommandResultView isPending={isPending} actionResult={commandResult} onSelectCandidate={selectCandidate} />
             )}
