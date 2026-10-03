@@ -40,6 +40,15 @@ export interface BrainActivitySignal {
   missionStatus: "COMPLETED" | "BLOCKED" | "FAILED" | null;
   /** Set only when this reply actually queried GitHub this turn — null otherwise. `repoCount` is null when not configured or the API call itself failed (never a guessed count). */
   github: { configured: boolean; repoCount: number | null } | null;
+  /**
+   * FASE 11 — Mission Lifecycle. The real per-agent breakdown of the mission
+   * this reply just reported on (from EvaluationMissionRun.progress/report —
+   * never a guess), whether that mission just finished or is still RUNNING.
+   * Empty arrays whenever `missionStatus` is null (no mission in this reply)
+   * or no agent has actually completed/failed yet.
+   */
+  completedAgentIds: string[];
+  failedAgentIds: string[];
 }
 
-export const EMPTY_BRAIN_SIGNAL: BrainActivitySignal = { agentIds: [], missionStatus: null, github: null };
+export const EMPTY_BRAIN_SIGNAL: BrainActivitySignal = { agentIds: [], missionStatus: null, github: null, completedAgentIds: [], failedAgentIds: [] };

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import type { EvaluationMissionInput } from "@/domain/evaluation-mission";
 
 /**
  * Pure read-only queries over EvaluationMissionRun, split out of
@@ -20,4 +21,47 @@ export function listMissionRuns() {
 /** The single most recent Mission run, regardless of status — what the Command Center's header/Head Report block reads from. */
 export function getLatestMissionRun() {
   return db.evaluationMissionRun.findFirst({ orderBy: { createdAt: "desc" } });
+}
+
+/**
+ * FASE 11 — Mission Lifecycle. The one real, global fact a client can poll
+ * for without already knowing a mission's id: is there a Run RUNNING right
+ * now at all? Deliberately kept in this Playwright-free file (not
+ * evaluation-orchestrator.ts) since this is the query a frequently-polled,
+ * client-facing Server Action calls — it must stay cheap.
+ */
+export function getRunningMissionRun() {
+  return db.evaluationMissionRun.findFirst({ where: { status: "RUNNING" }, orderBy: { createdAt: "desc" } });
+}
+
+/** FASE 11 — Mission Lifecycle. The real, interpreted shape the QG/Brain reasons about — never a guess about work still to happen. */
+export interface MissionLifecycle {
+  missionRunId: string;
+  projectId: string;
+  status: string;
+  requestedAgentIds: string[];
+  completedAgentIds: string[];
+  failedAgentIds: string[];
+  runningAgentId: string | null;
+  pendingAgentIds: string[];
+}
+
+/**
+ * Shapes a raw EvaluationMissionRun row (its `input.requestedAgents` — set
+ * once, at creation — and its `progress` column — see evaluation-
+ * orchestrator.ts's own onProgress, written as each agent actually
+ * starts/finishes) into the lifecycle view above. `pendingAgentIds` is
+ * everything requested that progress hasn't accounted for yet — never a
+ * separate query, purely the complement of what's real and already known.
+ */
+export function toMissionLifecycle(run: { id: string; projectId: string; status: string; input: unknown; progress: unknown }): MissionLifecycle {
+  const input = run.input as Pick<EvaluationMissionInput, "requestedAgents"> | null;
+  const requestedAgentIds = input?.requestedAgents ?? [];
+  const progress = run.progress as { completedAgentIds?: string[]; failedAgentIds?: string[]; runningAgentId?: string | null } | null;
+  const completedAgentIds = progress?.completedAgentIds ?? [];
+  const failedAgentIds = progress?.failedAgentIds ?? [];
+  const runningAgentId = progress?.runningAgentId ?? null;
+  const accountedFor = new Set([...completedAgentIds, ...failedAgentIds, ...(runningAgentId ? [runningAgentId] : [])]);
+  const pendingAgentIds = requestedAgentIds.filter((id) => !accountedFor.has(id));
+  return { missionRunId: run.id, projectId: run.projectId, status: run.status, requestedAgentIds, completedAgentIds, failedAgentIds, runningAgentId, pendingAgentIds };
 }

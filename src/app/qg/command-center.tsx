@@ -1,16 +1,18 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { ArrowRight } from "lucide-react";
 import { Panel } from "./panel";
 import {
   confirmQgActionAction,
+  getRunningMissionLifecycleAction,
   requestQgActionConfirmationAction,
   runQgBrainMessageAction,
   runQgCommandAction,
   type QgCommandActionResult,
 } from "./qg-command-actions";
 import { INITIAL_BRAIN_STATE, type BrainState, type BrainActivitySignal } from "@/services/brain-state";
+import type { MissionLifecycle } from "@/services/evaluation-mission-runs";
 import { QG_COMMANDS, type QgActionId } from "@/core/qg-command-router/qg-command-router";
 import type {
   AgentActivityResult,
@@ -75,7 +77,17 @@ export type CommandCenterActivity =
   | { phase: "awaiting-decision" }
   /** The human explicitly cancelled — distinct from "action-done" (which already covers a real confirm). */
   | { phase: "decision-resolved" }
-  | { phase: "action-done"; action: QgActionId; failed: boolean };
+  | { phase: "action-done"; action: QgActionId; failed: boolean }
+  /**
+   * FASE 11 — Mission Lifecycle. A real, DB-backed snapshot of a mission
+   * that is still RUNNING (see evaluation-mission-runs.ts's own
+   * MissionLifecycle and qg-command-actions.ts's getRunningMissionLifecycleAction),
+   * delivered by polling while one is known to be in flight — never a guess,
+   * never a timer pretending to be progress. Reused as-is whether the
+   * mission was triggered by this tab's own submit or discovered on mount
+   * after a reload (item 21 of this phase's brief).
+   */
+  | { phase: "mission-progress"; lifecycle: MissionLifecycle };
 
 export function CommandCenterConsole({ onActivity }: { onActivity?: (activity: CommandCenterActivity) => void } = {}) {
   const [open, setOpen] = useState(false);
@@ -96,6 +108,51 @@ export function CommandCenterConsole({ onActivity }: { onActivity?: (activity: C
   const [brainState, setBrainState] = useState<BrainState>(INITIAL_BRAIN_STATE);
   const [brainReply, setBrainReply] = useState<string | null>(null);
 
+  // FASE 11 — Mission Lifecycle. A mission created by createAndRunMissionEvaluation
+  // runs synchronously inside the one Server Action call below, so this tab's
+  // own `await` can't see it move — but the EvaluationMissionRun row is real
+  // and committed (status RUNNING) long before that call returns, so a
+  // SEPARATE, concurrent poll genuinely can. One interval at a time, only
+  // while something might be running, stopped the moment nothing is.
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function stopMissionPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  function startMissionPolling() {
+    stopMissionPolling();
+    pollRef.current = setInterval(async () => {
+      const lifecycle = await getRunningMissionLifecycleAction();
+      if (!lifecycle) {
+        stopMissionPolling();
+        return;
+      }
+      onActivity?.({ phase: "mission-progress", lifecycle });
+      if (lifecycle.status !== "RUNNING") stopMissionPolling();
+    }, 3000);
+  }
+
+  useEffect(() => {
+    // Item 21 — persistence after a reload: BrainState itself is plain React
+    // state and really does reset on refresh (no new conversation-history
+    // table this phase, see this file's own existing doc comment above) —
+    // but a mission already RUNNING is a real, persisted fact independent of
+    // that, discoverable the same way a live poll already finds one.
+    (async () => {
+      const lifecycle = await getRunningMissionLifecycleAction();
+      if (lifecycle) {
+        onActivity?.({ phase: "mission-progress", lifecycle });
+        startMissionPolling();
+      }
+    })();
+    return stopMissionPolling;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** The Quick Action buttons call this with their own canonical phrase, so they run through the exact same matchCommand() + executeQgCommand() path as free text — never a shortcut that bypasses the Router. */
   function runCommand(text: string) {
     setLastCommand(text);
@@ -104,25 +161,30 @@ export function CommandCenterConsole({ onActivity }: { onActivity?: (activity: C
     setConfirmation(null);
     setOpen(true);
     onActivity?.({ phase: "pending" });
+    startMissionPolling();
     startTransition(async () => {
-      const result = await runQgCommandAction(text);
+      try {
+        const result = await runQgCommandAction(text);
 
-      if (result.status === "UNKNOWN_COMMAND") {
-        const brain = await runQgBrainMessageAction(text, brainState);
-        if (brain.status === "ERROR") {
-          setCommandResult(result);
-          onActivity?.({ phase: "result", commandResult: result });
+        if (result.status === "UNKNOWN_COMMAND") {
+          const brain = await runQgBrainMessageAction(text, brainState);
+          if (brain.status === "ERROR") {
+            setCommandResult(result);
+            onActivity?.({ phase: "result", commandResult: result });
+            return;
+          }
+          setBrainReply(brain.reply.text);
+          setBrainState(brain.reply.state);
+          setCommandResult(brain.reply.structured ? { status: "OK", result: brain.reply.structured } : null);
+          onActivity?.({ phase: "result", commandResult: result, brainSignal: brain.reply.signal });
           return;
         }
-        setBrainReply(brain.reply.text);
-        setBrainState(brain.reply.state);
-        setCommandResult(brain.reply.structured ? { status: "OK", result: brain.reply.structured } : null);
-        onActivity?.({ phase: "result", commandResult: result, brainSignal: brain.reply.signal });
-        return;
-      }
 
-      setCommandResult(result);
-      onActivity?.({ phase: "result", commandResult: result });
+        setCommandResult(result);
+        onActivity?.({ phase: "result", commandResult: result });
+      } finally {
+        stopMissionPolling();
+      }
     });
   }
 

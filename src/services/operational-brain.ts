@@ -1,10 +1,11 @@
 import { matchCommand } from "@/core/qg-command-router/qg-command-router";
-import { executeQgCommand, type QgCommandResult, getCreateImplementationCandidates } from "@/services/qg-command-router";
+import { executeQgCommand, type QgCommandResult, getCreateImplementationCandidates, getApproveOrIgnoreCandidates } from "@/services/qg-command-router";
 import { resolveProjectReference, type ProjectRef } from "@/services/project-resolution";
 import { selectAgentsForMission } from "@/services/agent-selection";
 import { listAccessibleRepos } from "@/services/github-intelligence";
 import { listProjects } from "@/services/projects";
 import { createAndRunMissionEvaluation, getMissionRun, getLatestMissionRun } from "@/services/evaluation-orchestrator";
+import { getRunningMissionRun, toMissionLifecycle, type MissionLifecycle } from "@/services/evaluation-mission-runs";
 import { listRecommendationsForRun, getRecommendation } from "@/services/recommendations";
 import type { EvaluationMissionInput } from "@/domain/evaluation-mission";
 import type { HeadReport } from "@/core/findings/head-report";
@@ -59,7 +60,16 @@ const FOLLOWUP_TOP_ISSUE = /\bqual (foi|era|[ée]) o (problema|achado) mais impo
 // melhorar?") didn't match the first version of this pattern — only a
 // variant without "para" did. "para " and "a pena " are now both optional
 // before "melhorar", so either phrasing (or neither qualifier) matches.
-const FOLLOWUP_RECOMMENDATION = /\b(o que (voc[êe]|voce) (acha|acharia) que (vale|d[áa]) (a pena |para )?melhorar|o que (voc[êe]|voce) faria primeiro|o que (voc[êe]|voce) recomenda)\b/i;
+//
+// FASE 10 — same class of bug, found the same way: the FASE 10 brief's OWN
+// canonical phrases ("O que você acha que PODEMOS melhorar?", the shorter
+// "O que podemos melhorar?", and the follow-up "O que você MELHORARIA
+// primeiro?") didn't match this pattern either — "podemos"/"poderíamos"
+// weren't in the vale/dá alternation, "o que podemos melhorar" has no
+// "você acha que" at all, and "melhoraria/mudaria/priorizaria primeiro" was
+// never recognized, only the narrower "faria primeiro".
+const FOLLOWUP_RECOMMENDATION =
+  /\b(o que (voc[êe]s?|voce) (acha|acham|acharia) que (vale|d[áa]|podemos|poder[íi]amos) (a pena |para )?melhorar|o que podemos melhorar|o que (voc[êe]|voce) (faria|melhoraria|mudaria|priorizaria) primeiro|o que (voc[êe]|voce) recomenda)\b/i;
 const AGENT_GAP = /\b(algum agente (que|para)|deveria(mos)? (criar|ter) um agente|falta (um|algum) agente|tem (algo|alguma coisa) que (voc[êe]|voce) acha que dever[íi]amos criar)\b/i;
 const IMPLEMENTATION_REQUEST = /\bvamos melhorar isso\b|\bimplementa (isso|essa|esse)\b/i;
 const LIST_PROJECTS_QUERY = /\bquais (projetos|sistemas)\b/i;
@@ -109,11 +119,47 @@ function formatProjectList(projects: ProjectRef[]): string {
   return projects.map((p) => `"${p.name}"`).join(", ");
 }
 
+/**
+ * FASE 10 — found live, testing Scenario F (a real Gemini-quota failure):
+ * the raw error strings evaluation-orchestrator.ts stores (`run.error`,
+ * `coverage[].error`) are whatever the external provider's API returned —
+ * for Gemini that's a multi-line JSON error body with internal doc links
+ * and quota metric names. Dumping that verbatim into a conversational reply
+ * is exactly the "resposta técnica" item 5 of this phase's own brief warns
+ * against, even though it's not literally a `missionRunId=`/`provider=`
+ * field. This keeps only the human-readable lead sentence most provider
+ * errors already start with (observed shape: "<sentence>: { ...raw JSON
+ * body... }") and caps the length defensively for any other shape — it
+ * never hides WHAT failed, only the raw payload behind it. The full raw
+ * string stays exactly as persisted in the database; only the text shown in
+ * a reply is shortened.
+ */
+function humanizeError(raw: string): string {
+  const leadSentence = raw.split("{")[0].trim().replace(/[:\s]+$/, "");
+  const text = leadSentence || raw.trim();
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+}
+
+/**
+ * FASE 11 — Mission Lifecycle. The real, honest progress sentence for a
+ * mission that is still RUNNING — built only from EvaluationMissionRun.
+ * progress (see evaluation-orchestrator.ts's own onProgress), never a
+ * timer or an estimate. Replaces the old generic "ainda está em andamento",
+ * which said nothing real at all.
+ */
+function describeMissionProgress(lifecycle: MissionLifecycle): string {
+  const total = lifecycle.requestedAgentIds.length;
+  const done = lifecycle.completedAgentIds.length + lifecycle.failedAgentIds.length;
+  if (done === 0 && !lifecycle.runningAgentId) return `Ainda estou analisando — ${total} agente(s) selecionado(s), nenhum concluiu ainda.`;
+  if (done === 0) return `Ainda estou analisando — ${total} agente(s) selecionado(s), o primeiro está em execução agora.`;
+  return `Ainda estou analisando — ${done} de ${total} agente(s) já concluíram.`;
+}
+
 async function summarizeMissionRun(missionRunId: string): Promise<string> {
   const run = await getMissionRun(missionRunId);
   if (!run) return "Não encontro mais essa missão.";
-  if (run.status === "FAILED") return `A última missão falhou: ${run.error ?? "motivo não registrado"}.`;
-  if (run.status === "RUNNING") return "Essa missão ainda está em andamento.";
+  if (run.status === "FAILED") return `A última missão falhou: ${run.error ? humanizeError(run.error) : "motivo não registrado"}.`;
+  if (run.status === "RUNNING") return describeMissionProgress(toMissionLifecycle(run));
 
   // BLOCKED (src/services/evaluation-orchestrator.ts's own definition: every
   // requested agent's outcome was something other than SUCCESS) is NOT "no
@@ -123,7 +169,7 @@ async function summarizeMissionRun(missionRunId: string): Promise<string> {
   // message, citing each agent's own real error.
   if (run.status === "BLOCKED") {
     const report = run.report as unknown as FinalEvaluationReport | null;
-    const reasons = (report?.coverage ?? []).map((c) => `${c.agentId}: ${c.error ?? c.status}`).join("; ");
+    const reasons = (report?.coverage ?? []).map((c) => `${c.agentId}: ${c.error ? humanizeError(c.error) : c.status}`).join("; ");
     return `Nenhum agente conseguiu concluir essa missão (status BLOCKED) — não há um resultado de avaliação real para relatar.${reasons ? ` Detalhe por agente: ${reasons}.` : ""}`;
   }
 
@@ -242,17 +288,48 @@ export async function interpretBrainMessage(message: string, state: BrainState):
     return reply(`Projetos no LAB: ${formatProjectList(projects)}.`, state);
   }
 
-  if (IMPLEMENTATION_REQUEST.test(trimmed) && state.lastRecommendationId) {
-    const recommendation = await getRecommendation(state.lastRecommendationId);
-    if (!recommendation || recommendation.status !== "APPROVED") {
-      return reply(
-        "Essa recommendation ainda não está aprovada — a decisão humana continua sendo necessária antes de eu poder transformar isso em uma Implementation Task.",
-        state,
-      );
+  if (IMPLEMENTATION_REQUEST.test(trimmed)) {
+    // Prefer the recommendation the conversation was just discussing
+    // (lastRecommendationId, set by the FOLLOWUP_RECOMMENDATION branch
+    // below); fall back to the current mission's own most recent PENDING
+    // one so "vamos melhorar isso" also works said right after a mission
+    // result, before any explicit "o que podemos melhorar" follow-up.
+    let recommendationId = state.lastRecommendationId;
+    if (!recommendationId && state.missionRunId) {
+      const pending = (await listRecommendationsForRun(state.missionRunId)).find((r) => r.status === "PENDING");
+      recommendationId = pending?.id ?? null;
+    }
+
+    const recommendation = recommendationId ? await getRecommendation(recommendationId) : null;
+    if (!recommendation) {
+      return reply("Não existe nenhuma recomendação pronta para implementação neste momento.", state);
     }
     if (!recommendation.missionRun) return reply("Não encontrei o projeto dessa recommendation.", state);
+
+    // PENDING — the human hasn't decided on this recommendation yet, so
+    // "vamos melhorar isso" starts the REAL approval step (the same
+    // ACTION_CANDIDATES/confirmation-token flow the "Aprovar recomendação"
+    // exact command already uses), never a bypass straight to Implementation.
+    if (recommendation.status === "PENDING") {
+      const candidates = await getApproveOrIgnoreCandidates();
+      const single = candidates.filter((c) => c.id === recommendation.id);
+      return reply(
+        `Encontrei uma recomendação pendente: "${recommendation.title}". Confirme abaixo para aprová-la — a decisão humana continua sendo necessária antes de qualquer implementação.`,
+        { ...state, lastRecommendationId: recommendation.id },
+        { type: "ACTION_CANDIDATES", action: "APPROVE_RECOMMENDATION", candidates: single },
+      );
+    }
+
+    if (recommendation.status === "IGNORED") {
+      return reply(`Essa recomendação ("${recommendation.title}") já foi ignorada — não há nada pendente de implementação nela.`, state);
+    }
+
+    // APPROVED — ready for the existing Create Implementation step.
     const candidates = await getCreateImplementationCandidates(recommendation.missionRun.projectId);
     const single = candidates.filter((c) => c.recommendationId === recommendation.id);
+    if (single.length === 0) {
+      return reply(`A recomendação "${recommendation.title}" já está aprovada e já tem uma Implementation criada para ela.`, state);
+    }
     return reply(
       `Pronto para virar Implementation Task: "${recommendation.title}". Confirme abaixo — a execução continua exigindo sua autorização explícita.`,
       state,
@@ -278,6 +355,20 @@ export async function interpretBrainMessage(message: string, state: BrainState):
   }
 
   if (MISSION_TRIGGER.test(trimmed)) {
+    // FASE 11 — Mission Lifecycle: a real EvaluationMissionRun is created
+    // with status RUNNING before any agent executes (evaluation-
+    // orchestrator.ts), so this is a real, DB-backed fact, not a guess —
+    // never start a second mission while one is genuinely still going
+    // (item 15 of this phase's own brief: "não inventar uma fila", just
+    // say so honestly and describe the real one in progress).
+    const alreadyRunning = await getRunningMissionRun();
+    if (alreadyRunning) {
+      return reply(
+        `${describeMissionProgress(toMissionLifecycle(alreadyRunning))} Vou esperar essa terminar antes de iniciar outra análise.`,
+        state,
+      );
+    }
+
     const resolution = await resolveProjectReference(trimmed);
     let project: ProjectRef | null = null;
 
@@ -327,15 +418,23 @@ export async function interpretBrainMessage(message: string, state: BrainState):
     // persists COMPLETED/BLOCKED (try) or FAILED (catch); "RUNNING" is only
     // ever the row's initial insert value, already overwritten by the time
     // this function returns. Narrowing here, not re-deriving a new rule.
+    // FASE 11 — real per-agent breakdown, straight from the just-finished
+    // mission's own report.coverage (COMPLETED/BLOCKED always have one) —
+    // never a guess. A FAILED run has no report at all (the orchestration
+    // itself threw before consolidation could run), so both stay empty
+    // rather than invented from partial state.
+    const coverage = run.report?.coverage ?? [];
     const missionSignal: BrainActivitySignal = {
       agentIds: selection.agents.map((a) => a.id),
       missionStatus: run.status as "COMPLETED" | "BLOCKED" | "FAILED",
       github: null,
+      completedAgentIds: coverage.filter((c) => c.status === "SUCCESS").map((c) => c.agentId),
+      failedAgentIds: coverage.filter((c) => c.status !== "SUCCESS").map((c) => c.agentId),
     };
 
     if (run.status === "FAILED") {
       return reply(
-        `Iniciei a missão com ${selection.agents.map((a) => a.name).join(", ")} em "${project.name}", mas ela falhou: ${run.error}. Isso não é uma falha do roteamento — é o provider de modelo configurado (externo) que não respondeu.`,
+        `Iniciei a missão com ${selection.agents.map((a) => a.name).join(", ")} em "${project.name}", mas ela falhou: ${run.error ? humanizeError(run.error) : "motivo não registrado"}. Isso não é uma falha do roteamento — é o provider de modelo configurado (externo) que não respondeu.`,
         newState,
         null,
         missionSignal,

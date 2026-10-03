@@ -6,6 +6,7 @@ import { executeQgCommand, type QgCommandResult } from "@/services/qg-command-ro
 import { executeQgAction } from "@/services/qg-action-executor";
 import { createActionConfirmation, consumeActionConfirmation } from "@/services/qg-action-confirmation";
 import { interpretBrainMessage, type BrainState } from "@/services/operational-brain";
+import { getRunningMissionRun, toMissionLifecycle, type MissionLifecycle } from "@/services/evaluation-mission-runs";
 
 /**
  * FASE 11/12 — QG Runtime. The bridge between the QG's client-side Command
@@ -51,6 +52,21 @@ export async function runQgCommandAction(input: string): Promise<QgCommandAction
   } catch {
     return { status: "ERROR", message: "Não foi possível consultar os dados do LAB agora." };
   }
+}
+
+/**
+ * FASE 11 — Mission Lifecycle. The one thing a client can poll for without
+ * already knowing a mission's id: is there a real EvaluationMissionRun
+ * RUNNING right now? Read-only, cheap (see evaluation-mission-runs.ts's own
+ * doc comment on why it's kept out of the Playwright-pulling orchestrator
+ * module), and safe to call on a plain interval — it never changes state.
+ * Returns null the moment nothing is RUNNING, which is exactly the signal
+ * the client uses to stop polling.
+ */
+export async function getRunningMissionLifecycleAction(): Promise<MissionLifecycle | null> {
+  const run = await getRunningMissionRun();
+  if (!run) return null;
+  return toMissionLifecycle(run);
 }
 
 /**

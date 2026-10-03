@@ -108,6 +108,21 @@ async function evaluateWithAgent(
   return { agentId, status: result.status, output: result.output, error: result.error };
 }
 
+/** FASE 11 — Mission Lifecycle. The real, incremental shape persisted to EvaluationMissionRun.progress as each requested agent actually starts/finishes — never a simulated tick. */
+export interface MissionProgress {
+  completedAgentIds: string[];
+  failedAgentIds: string[];
+  runningAgentId: string | null;
+}
+
+function progressSoFar(evaluations: AgentEvaluationOutcome[], runningAgentId: string | null): MissionProgress {
+  return {
+    completedAgentIds: evaluations.filter((e) => e.status === "SUCCESS").map((e) => e.agentId),
+    failedAgentIds: evaluations.filter((e) => e.status !== "SUCCESS").map((e) => e.agentId),
+    runningAgentId,
+  };
+}
+
 /**
  * The first minimal Evaluation Orchestrator. Browser executes once,
  * Observations are produced once, and every requestedAgents id (in
@@ -116,10 +131,19 @@ async function evaluateWithAgent(
  * registered is reported as its own explicit BLOCKED outcome — it never
  * stops the other requested agents from running (partial execution is
  * allowed), and it is never replaced by a different agent.
+ *
+ * FASE 11 — `onProgress`, when given, is called with the REAL, so-far state
+ * right before each agent starts and right after each agent finishes (plus
+ * once more if the Planner itself never produced a Plan at all) — never a
+ * timer, never an estimate. Optional and additive: every other caller of
+ * this function (none currently exist outside createAndRunMissionEvaluation,
+ * but the signature stays backward compatible) behaves identically without
+ * it.
  */
 export async function runMissionEvaluation(
   mission: EvaluationMission,
   project: Pick<Project, "id">,
+  onProgress?: (progress: MissionProgress) => Promise<void> | void,
 ): Promise<MissionEvaluationResult> {
   const observations = await gatherMissionObservations(mission);
   const missionInfo = { target: mission.target, objective: mission.objective, task: mission.task };
@@ -128,6 +152,7 @@ export async function runMissionEvaluation(
     const reason =
       "This mission's task looked like a browser task, but the Task Planner could not produce an executable Plan for it — no agent was run, to avoid a result with no real evidence behind it.";
     const evaluations = mission.requestedAgents.map((agentId) => blockedOutcome(agentId, reason));
+    await onProgress?.(progressSoFar(evaluations, null));
     return {
       missionId: mission.id,
       mission: missionInfo,
@@ -145,7 +170,9 @@ export async function runMissionEvaluation(
 
   const evaluations: AgentEvaluationOutcome[] = [];
   for (const agentId of mission.requestedAgents) {
+    await onProgress?.(progressSoFar(evaluations, agentId));
     evaluations.push(await evaluateWithAgent(agentId, task, project, evaluationInput));
+    await onProgress?.(progressSoFar(evaluations, null));
   }
 
   // The consolidator runs once, here, strictly after every requested agent
@@ -241,7 +268,9 @@ export async function createAndRunMissionEvaluation(
   });
 
   try {
-    const result = await runMissionEvaluation(mission, project);
+    const result = await runMissionEvaluation(mission, project, async (progress) => {
+      await db.evaluationMissionRun.update({ where: { id: run.id }, data: { progress: progress as unknown as Prisma.InputJsonValue } });
+    });
     const allUnevaluated = result.evaluations.length > 0 && result.evaluations.every((e) => e.status !== "SUCCESS");
     const status: EvaluationMissionRunStatus = allUnevaluated ? "BLOCKED" : "COMPLETED";
 

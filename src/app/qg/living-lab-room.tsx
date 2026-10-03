@@ -421,6 +421,30 @@ export function LivingLabRoom({ data }: { data: QgOfficeData }) {
         return;
       }
 
+      if (event.phase === "mission-progress") {
+        // FASE 11 — Mission Lifecycle: a real, polled snapshot of a mission
+        // that is still RUNNING (or just reached a terminal status between
+        // polls). Every agent touched so far (completed, failed, or
+        // currently running) gets the exact same "active" visual treatment
+        // the "result" phase already gives agents at the very end — this
+        // just feeds it real, incremental facts instead of only the final
+        // one. Never schedules a settle timer itself: a genuinely finished
+        // mission is reported by the real "result" event from the turn that
+        // triggered it, not by this polling channel going quiet.
+        const { lifecycle } = event;
+        const touchedIds = new Set([...lifecycle.completedAgentIds, ...lifecycle.failedAgentIds, ...(lifecycle.runningAgentId ? [lifecycle.runningAgentId] : [])]);
+        const done = lifecycle.completedAgentIds.length + lifecycle.failedAgentIds.length;
+        const total = lifecycle.requestedAgentIds.length;
+        const message =
+          lifecycle.status !== "RUNNING"
+            ? "Missão finalizando."
+            : done === 0
+              ? `Analisando — ${total} agente(s) selecionado(s).`
+              : `Analisando — ${done} de ${total} agente(s) concluído(s).`;
+        setActivity((prev) => ({ ...prev, coreActivity: 0.7, activeAgentIds: touchedIds, statusMessage: message }));
+        return;
+      }
+
       // event.phase === "action-done" — the only moment Claude's latent node
       // is allowed to appear, and only because a real Server Action already
       // returned (never before, never to represent something in progress).

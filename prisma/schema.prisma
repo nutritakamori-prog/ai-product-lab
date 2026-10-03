@@ -286,6 +286,18 @@ model EvaluationMissionRun {
   // when `report` itself is null (FAILED runs, or runs from before this
   // column existed) — never backfilled with a guess.
   headReport Json?
+  // FASE 11 — Mission Lifecycle. An incremental, honest progress snapshot
+  // written as each requested agent actually starts/finishes, independent
+  // of `report`/`headReport` above (which only ever exist once the WHOLE
+  // mission is done). Null until the first agent starts. Shape:
+  // { completedAgentIds: string[], failedAgentIds: string[], runningAgentId:
+  // string | null } — written only by createAndRunMissionEvaluation() itself
+  // as real per-agent outcomes land, never a guess or a simulated tick.
+  // This is what lets the QG discover a mission's real state WHILE it is
+  // still RUNNING (via a separate concurrent read — Postgres already makes
+  // this row's committed writes visible to any other connection the moment
+  // each update lands), without a second tracking mechanism or table.
+  progress  Json?
   createdAt DateTime                   @default(now())
   updatedAt DateTime                   @updatedAt
 
