@@ -10,7 +10,7 @@ import { CommandCenterConsole, type CommandCenterActivity } from "./command-cent
 import { LabCore } from "./lab-core";
 import type { BurstEvent } from "./lab-core-scene";
 import { ReasoningGraph } from "./reasoning-graph";
-import { agentPositionPercent } from "./agent-layout";
+import { agentPositionPercent, agentDepth } from "./agent-layout";
 
 /**
  * FASE 1/2 — "Living Intelligence Interface". Replaces the room/office
@@ -134,19 +134,35 @@ function AgentOrb({ agent, index, total, onClick }: { agent: AgentStationData; i
   const approaching = agent.state === "WORKING" && !reducedMotion;
   const approachX = approaching ? -Math.cos(angle) * 10 : 0;
   const approachY = approaching ? -Math.sin(angle) * 10 : 0;
+  // FASE 9B — JARVIS-inspired composition: an agent that genuinely has
+  // nothing live to show (IDLE/NOT_IN_LATEST_RUN — the same real states
+  // isAgentActive() above already distinguishes) recedes visually instead
+  // of competing with the Core; the moment its real state changes, the
+  // state label/orb regain full presence. Still entirely state-driven —
+  // never a timer, never hidden (the name/state text stay in the DOM and
+  // in aria-label either way), only dimmer.
+  const dormant = !isAgentActive(agent.state);
+  // FASE 9C — "agentes parcialmente atrás; agentes parcialmente à frente":
+  // a fixed-per-agent depth (agent-layout.ts, same deterministic source the
+  // ring position already comes from) scales/dims the whole orb slightly
+  // and stacks nearer-reading agents above farther-reading ones — a cheap
+  // parallax illusion for a DOM ring, never a real 3D engine.
+  const depth = agentDepth(index);
 
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={`${agent.name} — ${agent.stateLabel}`}
-      className="qg-agent-orb"
+      className={`qg-agent-orb${dormant ? " qg-agent-orb-dormant" : ""}`}
       style={{
         left: `${x}%`,
         top: `${y}%`,
+        zIndex: Math.round(depth * 10),
         "--orb-color": style.color,
         "--orb-glow": style.glow,
         "--orb-speed": style.speed,
+        "--orb-depth": depth,
       } as React.CSSProperties}
     >
       <motion.span
@@ -275,6 +291,14 @@ export function LivingLabRoom({ data }: { data: QgOfficeData }) {
   const [panel, setPanel] = useState<PanelState>(null);
   const [quickViewOpen, setQuickViewOpen] = useState(false);
   const [activity, setActivity] = useState<ActivityState>(IDLE_ACTIVITY);
+  // FASE 9C — the same real prefers-reduced-motion read every CSS/Framer
+  // Motion layer in this file already honors, now also threaded into the
+  // WebGL Core (LabCore -> LabCoreScene's own uReducedMotion uniform) — the
+  // one real gap earlier phases had explicitly registered and left open.
+  // `?? false` only matters for the one SSR-render tick before this hook
+  // resolves client-side; it never causes a hydration mismatch since
+  // useReducedMotion() itself already renders `undefined` server-side.
+  const reducedMotion = useReducedMotion() ?? false;
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const burstReturnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const claudeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -418,89 +442,133 @@ export function LivingLabRoom({ data }: { data: QgOfficeData }) {
   );
 
   return (
-    <div className="qg-living-space flex h-full flex-col">
+    <div className="qg-living-space">
       {/* Every real event this page animates also lands here as plain text — the Canvas/SVG layers are never the only place a state change is communicated. */}
       <div role="status" aria-live="polite" className="sr-only">
         {activity.statusMessage}
       </div>
 
-      <div className="qg-living-header flex flex-wrap items-start justify-between gap-3 px-6 py-3">
-        <div className="flex flex-col gap-1.5">
-          <div className="flex flex-wrap items-center gap-3">
-            <Link href="/" className="flex items-center gap-1.5 text-xs text-white/60 underline-offset-2 hover:text-white hover:underline">
-              <ArrowLeft size={14} />
-              Voltar ao LAB
-            </Link>
-            <span className="text-white/30">·</span>
-            <span className="flex items-center gap-1.5 rounded-full border border-white/15 px-2.5 py-0.5 text-xs text-white/80">
-              <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[data.globalStatus]}`} aria-hidden />
-              LAB {data.globalStatusLabel}
-            </span>
-            <nav className="qg-navigator" aria-label="Navegação do LAB">
-              <Link href="/qg">QG</Link>
-              <span aria-hidden>·</span>
-              <Link href="/test-lab">Test Lab</Link>
-              <span aria-hidden>·</span>
-              <Link href="/product-intelligence">Product Intelligence</Link>
-              <span aria-hidden>·</span>
-              <Link href="/agents">Agents</Link>
-              <span aria-hidden>·</span>
-              <Link href="/projects">Projects</Link>
-              <span aria-hidden>·</span>
-              <Link href="/settings">Settings</Link>
-            </nav>
-          </div>
-        </div>
+      {/*
+       * FASE 9D — the header stopped being a bar: it's two small corner
+       * marks floating directly over the organism, nothing in between.
+       * "Voltar ao LAB" and the status stay real and reachable; the full
+       * Navigator (6 links) and the secondary feature links move into the
+       * Quick View drawer below — same real hrefs/functionality, just no
+       * longer forming a permanent horizontal strip across the top.
+       */}
+      <div className="qg-corner qg-corner-left">
+        <Link href="/" className="qg-mark" aria-label="Voltar ao LAB">
+          <ArrowLeft size={12} aria-hidden />
+          <span>Voltar ao LAB</span>
+        </Link>
+      </div>
 
-        <button
-          type="button"
-          onClick={() => setQuickViewOpen((v) => !v)}
-          aria-pressed={quickViewOpen}
-          className="rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/70 hover:bg-white/5 hover:text-white"
-        >
-          Quick View
+      <div className="qg-corner qg-corner-right">
+        <span className="qg-status-chip">
+          <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[data.globalStatus]}`} aria-hidden />
+          <span className="sr-only">LAB </span>
+          <span className="qg-status-chip-label">{data.globalStatusLabel}</span>
+        </span>
+        <button type="button" onClick={() => setQuickViewOpen((v) => !v)} aria-pressed={quickViewOpen} aria-label="Quick View" className="qg-quickview-toggle">
+          <span aria-hidden>⋯</span>
         </button>
       </div>
 
-      <div className="relative flex flex-1 overflow-hidden">
-        <div className="qg-living-stage relative flex-1 overflow-hidden">
-          <div className="qg-core-stage" aria-label="LAB Core">
-            <LabCore intensity={coreIntensity} alert={coreAlert} activity={activity.coreActivity} burst={activity.burst} />
-            <ReasoningGraph stations={data.stations} activeAgentIds={activity.activeAgentIds} pulseKey={activity.pulseKey} claudeActive={activity.claude.active} />
-            <div className="qg-agent-ring">
-              {data.stations.map((agent, i) => (
-                <AgentOrb key={agent.id} agent={agent} index={i} total={data.stations.length} onClick={() => setPanel({ type: "agent", agentId: agent.id })} />
-              ))}
+      {/*
+       * FASE 9D — the organism itself: Core, Reasoning Graph and the agent
+       * ring, absolutely centered (slightly above geometric middle) in the
+       * same space as everything else — no stage container, no card, no
+       * background of its own. Position/size live entirely in globals.css
+       * now (.qg-core-stage), not in a flex layout computed from sibling
+       * heights — the exact kind of "page containing a Core" composition
+       * this phase is replacing.
+       */}
+      <div className="qg-core-stage" aria-label="LAB Core">
+        <LabCore intensity={coreIntensity} alert={coreAlert} activity={activity.coreActivity} burst={activity.burst} reducedMotion={reducedMotion} />
+        <ReasoningGraph stations={data.stations} activeAgentIds={activity.activeAgentIds} pulseKey={activity.pulseKey} claudeActive={activity.claude.active} />
+        <div className="qg-agent-ring">
+          {data.stations.map((agent, i) => (
+            <AgentOrb key={agent.id} agent={agent} index={i} total={data.stations.length} onClick={() => setPanel({ type: "agent", agentId: agent.id })} />
+          ))}
+        </div>
+        {activity.claude.active ? (
+          <div className={`qg-claude-label ${activity.claude.failed ? "qg-claude-label-failed" : ""}`}>Claude Code</div>
+        ) : null}
+        {activity.github ? (
+          <div className={`qg-github-label ${!activity.github.configured || activity.github.repoCount === null ? "qg-github-label-unconfigured" : ""}`}>
+            {!activity.github.configured
+              ? "GitHub — não configurado"
+              : activity.github.repoCount === null
+                ? "GitHub — erro ao consultar"
+                : `GitHub — ${activity.github.repoCount} repositório(s)`}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="qg-agent-list-mobile">
+        {data.stations.map((agent) => (
+          <AgentChip key={agent.id} agent={agent} onClick={() => setPanel({ type: "agent", agentId: agent.id })} />
+        ))}
+      </div>
+
+      {/* FASE 9D — synthesis + command bar now live together as one small
+          bottom cluster, absolutely anchored — never pushing or being pushed
+          by anything else, since nothing else is in normal flow anymore. */}
+      <div className="qg-bottom-cluster">
+        <MissionSynthesis data={data} onOpenHead={() => setPanel({ type: "head" })} />
+        <div className="qg-command-dock">
+          <div className="qg-command-scope">
+            <CommandCenterConsole onActivity={handleCommandActivity} />
+          </div>
+        </div>
+      </div>
+
+      {quickViewOpen ? (
+        <aside className="qg-quickview text-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-white/60">Quick View</p>
+            <button type="button" onClick={() => setQuickViewOpen(false)} aria-label="Fechar Quick View" className="text-white/60 hover:text-white">
+              ×
+            </button>
+          </div>
+          <div className="mt-3 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <span className={`h-2 w-2 rounded-full ${STATUS_DOT[data.globalStatus]}`} aria-hidden />
+              <span className="text-sm font-medium text-white">{data.globalStatusLabel}</span>
             </div>
-            {activity.claude.active ? (
-              <div className={`qg-claude-label ${activity.claude.failed ? "qg-claude-label-failed" : ""}`}>Claude Code</div>
+            {data.latestMission ? (
+              <p className="text-xs text-white/60">
+                Última avaliação: <span className="text-white">{data.latestMission.target}</span> · {data.latestMission.specialistCount} especialista(s)
+              </p>
+            ) : (
+              <p className="text-xs text-white/60">Nenhuma avaliação executada ainda.</p>
+            )}
+            <p className="text-xs text-white/60">
+              Recommendations: <span className="text-white">{data.pendingCount} pendente(s)</span> · {data.approvedCount} aprovada(s) · {data.ignoredCount} ignorada(s)
+            </p>
+            <p className="text-xs text-white/60">Avaliações no histórico: {data.missionHistoryCount}</p>
+            {data.latestMission ? (
+              <Link href={`/test-lab/missions/${data.latestMission.id}`} className="text-xs text-white underline">
+                Ver última mission
+              </Link>
             ) : null}
-            {activity.github ? (
-              <div className={`qg-github-label ${!activity.github.configured || activity.github.repoCount === null ? "qg-github-label-unconfigured" : ""}`}>
-                {!activity.github.configured
-                  ? "GitHub — não configurado"
-                  : activity.github.repoCount === null
-                    ? "GitHub — erro ao consultar"
-                    : `GitHub — ${activity.github.repoCount} repositório(s)`}
-              </div>
-            ) : null}
           </div>
 
-          <div className="qg-agent-list-mobile">
-            {data.stations.map((agent) => (
-              <AgentChip key={agent.id} agent={agent} onClick={() => setPanel({ type: "agent", agentId: agent.id })} />
-            ))}
-          </div>
+          <nav className="qg-navigator mt-4" aria-label="Navegação do LAB">
+            <Link href="/qg">QG</Link>
+            <span aria-hidden>·</span>
+            <Link href="/test-lab">Test Lab</Link>
+            <span aria-hidden>·</span>
+            <Link href="/product-intelligence">Product Intelligence</Link>
+            <span aria-hidden>·</span>
+            <Link href="/agents">Agents</Link>
+            <span aria-hidden>·</span>
+            <Link href="/projects">Projects</Link>
+            <span aria-hidden>·</span>
+            <Link href="/settings">Settings</Link>
+          </nav>
 
-          <MissionSynthesis data={data} onOpenHead={() => setPanel({ type: "head" })} />
-
-          <div className="qg-command-dock">
-            <div className="qg-command-scope">
-              <CommandCenterConsole onActivity={handleCommandActivity} />
-            </div>
-          </div>
-
-          <div className="qg-minimal-links">
+          <div className="qg-minimal-links mt-3">
             <MinimalLink icon={<LogIn size={14} />} label="Entrada" onClick={() => setQuickViewOpen(true)} ariaLabel="Entrada do LAB — abrir Quick View" />
             <MinimalLink icon={<Clock size={14} />} label="Relógio" onClick={() => setPanel({ type: "clock" })} ariaLabel="Relógio — hora e agenda" />
             <MinimalLink
@@ -534,41 +602,8 @@ export function LivingLabRoom({ data }: { data: QgOfficeData }) {
               ariaLabel={`Findings — ${discoveryFindings.length} descoberta(s) na última avaliação`}
             />
           </div>
-        </div>
-
-        {quickViewOpen ? (
-          <aside className="qg-quickview w-72 shrink-0 p-4 text-sm">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-white/60">Quick View</p>
-              <button type="button" onClick={() => setQuickViewOpen(false)} aria-label="Fechar Quick View" className="text-white/60 hover:text-white">
-                ×
-              </button>
-            </div>
-            <div className="mt-3 flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${STATUS_DOT[data.globalStatus]}`} aria-hidden />
-                <span className="text-sm font-medium text-white">{data.globalStatusLabel}</span>
-              </div>
-              {data.latestMission ? (
-                <p className="text-xs text-white/60">
-                  Última avaliação: <span className="text-white">{data.latestMission.target}</span> · {data.latestMission.specialistCount} especialista(s)
-                </p>
-              ) : (
-                <p className="text-xs text-white/60">Nenhuma avaliação executada ainda.</p>
-              )}
-              <p className="text-xs text-white/60">
-                Recommendations: <span className="text-white">{data.pendingCount} pendente(s)</span> · {data.approvedCount} aprovada(s) · {data.ignoredCount} ignorada(s)
-              </p>
-              <p className="text-xs text-white/60">Avaliações no histórico: {data.missionHistoryCount}</p>
-              {data.latestMission ? (
-                <Link href={`/test-lab/missions/${data.latestMission.id}`} className="text-xs text-white underline">
-                  Ver última mission
-                </Link>
-              ) : null}
-            </div>
-          </aside>
-        ) : null}
-      </div>
+        </aside>
+      ) : null}
 
       {panel?.type === "head" ? (
         <Panel title="Head" onClose={() => setPanel(null)}>

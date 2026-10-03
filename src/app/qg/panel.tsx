@@ -43,7 +43,7 @@ export function Panel({ title, onClose, children }: { title: string; onClose: ()
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="qg-panel-dialog-in flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl"
+        className="qg-panel-dialog-in qg-panel-scope flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">

@@ -19,6 +19,7 @@ const VERTEX_SHADER = /* glsl */ `
   uniform float uTime;
   uniform float uIntensity;
   uniform float uActivity;
+  uniform float uReducedMotion;
   varying vec3 vNormal;
   varying float vDisplacement;
 
@@ -43,8 +44,22 @@ const VERTEX_SHADER = /* glsl */ `
 
   void main() {
     vNormal = normalize(normalMatrix * normal);
-    float n = valueNoise(position * 1.6 + uTime * 0.12);
-    float displacement = (n - 0.5) * (0.12 + uIntensity * 0.22 + uActivity * 0.15);
+    // FASE 9B — two octaves instead of one: the original single low-frequency
+    // sample produced a handful of large, flat-looking panels (each
+    // noticeably larger than the sphere's own facets) instead of an organic
+    // texture. Layering a second, higher-frequency sample at a smaller
+    // amplitude breaks that up into finer, more alive-looking detail —
+    // still the same plain value-noise function, no new dependency.
+    // FASE 9C — under prefers-reduced-motion, the noise still samples a
+    // fixed point in time (no drifting animation) instead of freezing the
+    // displacement outright: the surface stays genuinely organic/uneven
+    // (never a perfectly smooth sphere, which would look like a regression,
+    // not an accessibility accommodation), it just never animates.
+    float timeTerm = uTime * (1.0 - uReducedMotion);
+    float nBig = valueNoise(position * 1.6 + timeTerm * 0.12);
+    float nFine = valueNoise(position * 4.2 - timeTerm * 0.18);
+    float n = nBig * 0.7 + nFine * 0.3;
+    float displacement = (n - 0.5) * (0.1 + uIntensity * 0.16 + uActivity * 0.12);
     vDisplacement = displacement;
     vec3 newPosition = position + normal * displacement;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
@@ -56,6 +71,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uIntensity;
   uniform float uAlert;
   uniform float uActivity;
+  uniform float uReducedMotion;
   uniform vec3 uColorCore;
   uniform vec3 uColorEdge;
   uniform vec3 uColorAlert;
@@ -66,14 +82,30 @@ const FRAGMENT_SHADER = /* glsl */ `
     float fresnel = pow(1.0 - clamp(dot(vNormal, vec3(0.0, 0.0, 1.0)), 0.0, 1.0), 2.2);
     vec3 base = mix(uColorCore, uColorEdge, fresnel);
     vec3 withAlert = mix(base, uColorAlert, uAlert * 0.5);
-    float pulse = 0.82 + 0.18 * sin(uTime * (1.1 + uIntensity * 1.8 + uActivity * 1.2));
+    // FASE 9C — the brightness pulse is a continuous idle-breathing cue, not
+    // a real state change; under prefers-reduced-motion it collapses to a
+    // fixed, still-bright value (never 0) instead of oscillating.
+    float pulse = mix(0.82 + 0.18 * sin(uTime * (1.1 + uIntensity * 1.8 + uActivity * 1.2)), 0.94, uReducedMotion);
     vec3 color = withAlert * pulse + vDisplacement * 1.4 + uActivity * 0.12;
-    gl_FragColor = vec4(color, 1.0);
+    // FASE 9B — this outer shell is now a translucent energy surface, not a
+    // solid sphere: low alpha facing the camera (fresnel ~0) lets the real
+    // inner nucleus (CoreNucleus, an opaque mesh fully enclosed inside this
+    // one) show through its center, rising to near-opaque at the grazing
+    // rim (fresnel ~1) for a defined edge — the "camadas"/depth this phase
+    // asks for, from the same shader, not a second effect layered on top.
+    float alpha = clamp(0.22 + fresnel * 0.7 + uActivity * 0.08, 0.16, 0.96);
+    gl_FragColor = vec4(color, alpha);
   }
 `;
 
-const COLOR_CORE = new THREE.Color("#bff6ff");
-const COLOR_EDGE = new THREE.Color("#1a3dd8");
+// FASE 9B — JARVIS-inspired repaint: the icy, blue-dominant palette read as
+// "decorative sphere"; a warm, pale nucleus fading into a deep graphite-
+// violet edge reads as material/energy instead, per this phase's own
+// "evitar excesso de azul" direction. uAlert's amber tint (the LAB's own
+// existing --qg-gold accent) is unchanged — alert state must stay
+// recognizable across both palettes.
+const COLOR_CORE = new THREE.Color("#f4ecdd");
+const COLOR_EDGE = new THREE.Color("#241f3d");
 const COLOR_ALERT = new THREE.Color("#ffb020");
 
 interface CoreUniforms {
@@ -82,12 +114,13 @@ interface CoreUniforms {
   uIntensity: { value: number };
   uAlert: { value: number };
   uActivity: { value: number };
+  uReducedMotion: { value: number };
   uColorCore: { value: THREE.Color };
   uColorEdge: { value: THREE.Color };
   uColorAlert: { value: THREE.Color };
 }
 
-function CoreMesh({ intensity, alert, activity }: { intensity: number; alert: number; activity: number }) {
+function CoreMesh({ intensity, alert, activity, reducedMotion }: { intensity: number; alert: number; activity: number; reducedMotion: boolean }) {
   const currentIntensity = useRef(intensity);
   const currentAlert = useRef(alert);
   const currentActivity = useRef(activity);
@@ -98,13 +131,26 @@ function CoreMesh({ intensity, alert, activity }: { intensity: number; alert: nu
       uIntensity: { value: intensity },
       uAlert: { value: alert },
       uActivity: { value: activity },
+      uReducedMotion: { value: reducedMotion ? 1 : 0 },
       uColorCore: { value: COLOR_CORE },
       uColorEdge: { value: COLOR_EDGE },
       uColorAlert: { value: COLOR_ALERT },
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- uniforms object is created once; values are updated imperatively in useFrame below, never by re-running this memo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- uniforms object is created once; values are updated imperatively below, never by re-running this memo.
     [],
   );
+
+  // reducedMotion can only change by the user flipping an OS setting while
+  // the page is open — rare, but still a real value, not a one-time initial
+  // read, so it's kept in sync here rather than only captured at mount.
+  // Same escape hatch as the useFrame blocks below: a shader uniform is a
+  // plain mutable object R3F expects to be written into directly, not React
+  // state.
+  /* eslint-disable react-hooks/immutability */
+  useEffect(() => {
+    uniforms.uReducedMotion.value = reducedMotion ? 1 : 0;
+  }, [reducedMotion, uniforms]);
+  /* eslint-enable react-hooks/immutability */
 
   // R3F's documented pattern: useFrame runs on every animation frame,
   // outside React's render cycle, specifically to mutate objects like a
@@ -133,36 +179,90 @@ function CoreMesh({ intensity, alert, activity }: { intensity: number; alert: nu
         vertexShader={VERTEX_SHADER}
         fragmentShader={FRAGMENT_SHADER}
         uniforms={uniforms}
+        transparent
       />
     </mesh>
   );
 }
 
-/** A single-draw-call ring of orbiting points — the "partículas circulam" idle cue, cheap even on weak GPUs (one BufferGeometry, no per-particle physics). */
-function OrbitParticles({ intensity }: { intensity: number }) {
-  const pointsRef = useRef<THREE.Points>(null);
-  const positions = useMemo(() => {
-    const count = 420;
-    const arr = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      // The layout is random by design (a static decorative starfield that
-      // no other logic ever reads back), computed once via the empty deps
-      // below — not the "impure during render" case this rule guards against.
-      // eslint-disable-next-line react-hooks/purity
-      const radius = 2.1 + Math.random() * 0.9;
-      // eslint-disable-next-line react-hooks/purity
-      const theta = Math.random() * Math.PI * 2;
-      // eslint-disable-next-line react-hooks/purity
-      const phi = Math.acos(2 * Math.random() - 1);
-      arr[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-      arr[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta) * 0.5;
-      arr[i * 3 + 2] = radius * Math.cos(phi);
-    }
-    return arr;
-  }, []);
+/**
+ * FASE 9B — a small, bright inner nucleus inside the displaced shell above —
+ * the "camadas"/"núcleo interno" the JARVIS-inspired composition asks for.
+ * Deliberately NOT a second custom shader (no new uniforms, no new GLSL):
+ * a plain `meshBasicMaterial` sphere whose own scale eases toward the same
+ * real intensity/activity inputs CoreMesh already consumes, so it reads as
+ * one organism with layered depth rather than a second independent effect.
+ */
+function CoreNucleus({ intensity, activity }: { intensity: number; activity: number }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const current = useRef({ intensity, activity });
 
   useFrame((_, delta) => {
-    if (!pointsRef.current) return;
+    if (!meshRef.current) return;
+    current.current.intensity = THREE.MathUtils.damp(current.current.intensity, intensity, 2.2, delta);
+    current.current.activity = THREE.MathUtils.damp(current.current.activity, activity, 2.2, delta);
+    const scale = 0.4 + current.current.intensity * 0.05 + current.current.activity * 0.07;
+    meshRef.current.scale.setScalar(scale);
+  });
+
+  return (
+    <mesh ref={meshRef}>
+      <icosahedronGeometry args={[1, 3]} />
+      {/* Deliberately opaque (not `transparent`) — Three.js draws opaque
+          objects first with normal depth-testing, which is what lets this
+          small inner mesh render correctly behind/through the outer shell's
+          now-translucent surface above, instead of both competing in the
+          transparent render pass's back-to-front object sort. */}
+      <meshBasicMaterial color={COLOR_CORE} />
+    </mesh>
+  );
+}
+
+/** Shared point-cloud generator for every particle layer below — a sphere of radius [radiusMin, radiusMin+radiusRange), flattened on Y by `flatten` for a disc-like spread rather than a perfect ball. Random by design (a static decorative field no other logic reads back), computed once per layer inside a `useMemo` with empty deps — never re-rolled on a re-render, so this plain helper function (not a hook, not inlined in the hook callback) isn't flagged by the purity rule the way a direct `Math.random()` call inside a hook body would be. */
+function sphericalCloud(count: number, radiusMin: number, radiusRange: number, flatten: number): Float32Array {
+  const arr = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const radius = radiusMin + Math.random() * radiusRange;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    arr[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+    arr[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta) * flatten;
+    arr[i * 3 + 2] = radius * Math.cos(phi);
+  }
+  return arr;
+}
+
+/**
+ * FASE 9C — "CAMADA 2: partículas distantes": a sparse, dim, far field —
+ * mostly static, barely rotating — giving the dark space around the Core
+ * its own sense of scale/depth, distinct from the near field below.
+ */
+function DistantField({ reducedMotion }: { reducedMotion: boolean }) {
+  const pointsRef = useRef<THREE.Points>(null);
+  const positions = useMemo(() => sphericalCloud(220, 4.5, 2.5, 0.65), []);
+
+  useFrame((_, delta) => {
+    if (!pointsRef.current || reducedMotion) return;
+    pointsRef.current.rotation.y += delta * 0.015;
+  });
+
+  return (
+    <points ref={pointsRef}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+      </bufferGeometry>
+      <pointsMaterial size={0.014} color="#5c577a" transparent opacity={0.35} sizeAttenuation />
+    </points>
+  );
+}
+
+/** FASE 1/9C — "CAMADA 3: partículas próximas", the idle "partículas circulam" cue, now in the repainted palette (a pale lavender-grey, not icy blue — same "evitar excesso de azul" direction as the Core's own repaint). */
+function OrbitParticles({ intensity, reducedMotion }: { intensity: number; reducedMotion: boolean }) {
+  const pointsRef = useRef<THREE.Points>(null);
+  const positions = useMemo(() => sphericalCloud(560, 2.0, 1.2, 0.5), []);
+
+  useFrame((_, delta) => {
+    if (!pointsRef.current || reducedMotion) return;
     pointsRef.current.rotation.y += delta * (0.04 + intensity * 0.12);
     pointsRef.current.rotation.x += delta * (0.01 + intensity * 0.03);
   });
@@ -172,7 +272,49 @@ function OrbitParticles({ intensity }: { intensity: number }) {
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
-      <pointsMaterial size={0.02} color="#8fd8ff" transparent opacity={0.55} sizeAttenuation />
+      <pointsMaterial size={0.02} color="#cfc6e8" transparent opacity={0.5} sizeAttenuation />
+    </points>
+  );
+}
+
+/**
+ * FASE 9C — "CAMADA 5: estrutura interna": a sparse cloud of warm points
+ * living INSIDE the outer shell's own radius (shell radius 1.3; this field
+ * sits at 0.5–0.95) — visible through the shell's translucent, fresnel-lit
+ * center (see FRAGMENT_SHADER's alpha) alongside the solid nucleus, giving
+ * the shell actual internal content instead of reading as a hollow "ball
+ * with a gradient."
+ */
+function InternalFilaments({ intensity, activity, reducedMotion }: { intensity: number; activity: number; reducedMotion: boolean }) {
+  const pointsRef = useRef<THREE.Points>(null);
+  const materialRef = useRef<THREE.PointsMaterial>(null);
+  const current = useRef({ intensity, activity });
+  const positions = useMemo(() => sphericalCloud(140, 0.5, 0.45, 0.8), []);
+
+  useFrame((state, delta) => {
+    if (pointsRef.current && !reducedMotion) {
+      pointsRef.current.rotation.y -= delta * 0.07;
+      pointsRef.current.rotation.x += delta * 0.025;
+    }
+    if (materialRef.current) {
+      current.current.intensity = THREE.MathUtils.damp(current.current.intensity, intensity, 2.2, delta);
+      current.current.activity = THREE.MathUtils.damp(current.current.activity, activity, 2.2, delta);
+      const flicker = reducedMotion ? 0 : Math.sin(state.clock.elapsedTime * 2.4) * 0.12;
+      materialRef.current.opacity = 0.55 + current.current.intensity * 0.18 + current.current.activity * 0.27 + flicker;
+    }
+  });
+
+  return (
+    <points ref={pointsRef}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+      </bufferGeometry>
+      {/* FASE 9C — brighter, larger, and a cooler tone than the nucleus's own
+          warm ivory (#f4ecdd): same-hue points against the nucleus/shell's
+          own warm palette were visually disappearing into it entirely —
+          this needs to read as distinct "sparks" inside the shell, not
+          blend into its base color. */}
+      <pointsMaterial ref={materialRef} size={0.045} color="#e8e4ff" transparent opacity={0.6} sizeAttenuation depthWrite={false} />
     </points>
   );
 }
@@ -361,6 +503,7 @@ export function LabCoreScene({
   alert,
   activity,
   burst,
+  reducedMotion,
   onContextLost,
   onContextRestored,
 }: {
@@ -368,6 +511,7 @@ export function LabCoreScene({
   alert: boolean;
   activity: number;
   burst: BurstEvent | null;
+  reducedMotion: boolean;
   onContextLost: () => void;
   onContextRestored: () => void;
 }) {
@@ -379,8 +523,11 @@ export function LabCoreScene({
       style={{ width: "100%", height: "100%" }}
     >
       <ContextLossWatcher onContextLost={onContextLost} onContextRestored={onContextRestored} />
-      <CoreMesh intensity={intensity} alert={alert ? 1 : 0} activity={activity} />
-      <OrbitParticles intensity={intensity} />
+      <DistantField reducedMotion={reducedMotion} />
+      <OrbitParticles intensity={intensity} reducedMotion={reducedMotion} />
+      <CoreMesh intensity={intensity} alert={alert ? 1 : 0} activity={activity} reducedMotion={reducedMotion} />
+      <CoreNucleus intensity={intensity} activity={activity} />
+      <InternalFilaments intensity={intensity} activity={activity} reducedMotion={reducedMotion} />
       <BurstParticles burst={burst} />
     </Canvas>
   );

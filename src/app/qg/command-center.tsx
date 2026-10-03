@@ -192,7 +192,7 @@ export function CommandCenterConsole({ onActivity }: { onActivity?: (activity: C
             type="text"
             value={commandInput}
             onChange={(e) => setCommandInput(e.target.value)}
-            placeholder="O que você quer investigar? Ex.: analise o último ciclo"
+            placeholder="Fale com o LAB..."
             className="w-full min-w-[9rem] flex-1 bg-transparent outline-none placeholder:text-muted"
           />
           <button type="submit" aria-label="Executar comando" className="text-muted transition-colors hover:text-accent">

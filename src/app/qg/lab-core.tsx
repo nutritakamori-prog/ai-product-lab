@@ -59,7 +59,20 @@ class CoreErrorBoundary extends Component<{ children: ReactNode }, { hasError: b
  * loop unrelated to actual LAB state. `burst`, when set, fires one
  * pre-allocated particle burst traveling to/from a given agent's position.
  */
-export function LabCore({ intensity, alert, activity, burst }: { intensity: number; alert: boolean; activity: number; burst: BurstEvent | null }) {
+export function LabCore({
+  intensity,
+  alert,
+  activity,
+  burst,
+  reducedMotion,
+}: {
+  intensity: number;
+  alert: boolean;
+  activity: number;
+  burst: BurstEvent | null;
+  /** FASE 9C — prefers-reduced-motion, read once by the caller (living-lab-room.tsx already needs it for its own CSS/Framer Motion layer) and threaded down here so the WebGL layer can honor it too — see lab-core-scene.tsx's own uReducedMotion uniform. */
+  reducedMotion: boolean;
+}) {
   const [webglOk, setWebglOk] = useState<boolean | null>(null);
   // Incrementing this remounts LabCoreScene with a fresh Canvas/WebGL
   // context after a restore, rather than trying to manually re-upload every
@@ -94,6 +107,7 @@ export function LabCore({ intensity, alert, activity, burst }: { intensity: numb
         alert={alert}
         activity={activity}
         burst={burst}
+        reducedMotion={reducedMotion}
         onContextLost={handleContextLost}
         onContextRestored={handleContextRestored}
       />

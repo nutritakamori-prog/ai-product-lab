@@ -58,38 +58,113 @@ body {
    fallback never removes information, only movement.
    ============================================================ */
 
+/*
+ * FASE 9D — structural rebuild: the QG stopped being a page with a header,
+ * a content section and a footer that happens to contain a Core. Every
+ * piece below is now `position: absolute` directly against
+ * `.qg-living-space` itself — one shared stage, not nested flex
+ * rows/columns computed from each other's heights. There is no longer a
+ * ".qg-living-stage" wrapper at all: the Core, the bottom cluster and the
+ * corner marks are all direct, independently-positioned children of the
+ * same space, exactly like the brief's own diagram (no HEADER/CONTENT/
+ * FOOTER, one AMBIENTE). `overflow: hidden` is safe here specifically
+ * because nothing is in normal flow anymore — nothing can ever overflow a
+ * box whose every child is already positioned within its own bounds via
+ * %/vh-relative units, unlike the old flex-column layout which needed a
+ * real scroll safety net (FASE 9C) because sibling heights could add up to
+ * more than the viewport.
+ */
 .qg-living-space {
   position: relative;
   min-height: 100%;
+  height: 100%;
+  overflow: hidden;
   background: radial-gradient(ellipse 80% 60% at 50% 38%, color-mix(in srgb, var(--qg-space) 70%, #0d1a4a) 0%, var(--qg-space) 55%, var(--qg-space-deep) 100%);
   color: #f2f4ff;
 }
 
-.qg-living-header {
-  position: relative;
-  z-index: 2;
-}
-
-.qg-living-stage {
-  position: relative;
-  padding: 1.5rem 1.5rem 2.5rem;
+/* The two corner marks that replace the old header bar — "canto superior
+   esquerdo: marca LAB pequena. canto superior direito: estado extremamente
+   discreto. Nada mais." from the brief. */
+.qg-corner {
+  position: absolute;
+  top: 1.1rem;
+  z-index: 10;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 1.5rem;
+  gap: 0.6rem;
 }
 
-/* The Core's own stage — a square-ish area the Core fills and the agent
-   ring is positioned against (every orb's left/top % in living-lab-room.tsx
-   is relative to this box, not the viewport). Sized as a % of its own flex
-   parent (never vmin/vw) so it shrinks correctly inside whatever column
-   width the page's AppShell sidebar leaves available, instead of overflowing
-   it on narrow screens. */
+.qg-corner-left {
+  left: 1.25rem;
+}
+
+.qg-corner-right {
+  right: 1.25rem;
+}
+
+.qg-mark {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: rgba(242, 244, 255, 0.45);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.qg-mark:hover {
+  color: #f2f4ff;
+}
+
+.qg-status-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.65rem;
+  color: rgba(242, 244, 255, 0.5);
+}
+
+/* A single small icon trigger for the Quick View drawer — not a labeled
+   button, so it reads as a discreet affordance, not a UI control
+   competing with the organism. */
+.qg-quickview-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(242, 244, 255, 0.55);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.qg-quickview-toggle:hover {
+  color: #f2f4ff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* The Core's own stage — absolutely centered, slightly ABOVE geometric
+   middle ("ligeiramente acima do centro geométrico" — leaves room for the
+   bottom cluster without pushing the Core up out of its own center). Sized
+   against viewport height (vh) now that it's no longer nested inside a
+   flex column whose own height depended on its siblings — capped by both a
+   percentage of its own absolutely-positioned parent (never purely vw, so
+   a narrow window with the AppShell sidebar still can't force an overflow)
+   and a rem ceiling so it never grows absurdly large on huge monitors. */
 .qg-core-stage {
-  position: relative;
-  width: min(85%, 32rem);
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  transform: translate(-50%, -50%);
+  width: min(58vh, 78%, 34rem);
   aspect-ratio: 1;
-  margin-top: 0.5rem;
+  z-index: 1;
 }
 
 /* !important because this targets LabCore's own Canvas wrapper, which R3F
@@ -120,16 +195,19 @@ body {
   position: absolute;
   inset: 8%;
   border-radius: 999px;
-  border: 1px solid rgba(143, 216, 255, 0.35);
+  border: 1px solid rgba(210, 195, 235, 0.3);
   animation: qg-core-fallback-spin 18s linear infinite;
 }
 
+/* Same warm-nucleus/graphite-violet-edge palette as the WebGL shader's own
+   COLOR_CORE/COLOR_EDGE (lab-core-scene.tsx) — a visitor without WebGL
+   should see the same organism, not a different, icier one. */
 .qg-core-fallback-pulse {
   width: 55%;
   height: 55%;
   border-radius: 999px;
-  background: radial-gradient(circle at 50% 42%, #bff6ff 0%, #4d6fe0 55%, #1a3dd8 100%);
-  box-shadow: 0 0 60px 10px rgba(127, 227, 255, 0.45);
+  background: radial-gradient(circle at 50% 42%, #f4ecdd 0%, #6b5f95 55%, #241f3d 100%);
+  box-shadow: 0 0 60px 10px rgba(180, 160, 220, 0.35);
   animation: qg-core-fallback-breathe 3.2s ease-in-out infinite;
 }
 
@@ -161,7 +239,12 @@ body {
 
 .qg-agent-orb {
   position: absolute;
-  transform: translate(-50%, -50%);
+  /* FASE 9C — the fixed, deterministic per-agent --orb-depth (agent-layout.ts)
+     scales the whole orb slightly up/down around its own anchor point —
+     never randomized per render, never relocating the orb's actual orbit
+     slot (translate(-50%, -50%) still centers it on its real x/y). */
+  transform: translate(-50%, -50%) scale(var(--orb-depth, 1));
+  opacity: calc(0.62 + var(--orb-depth, 1) * 0.38);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -216,6 +299,33 @@ body {
   text-align: center;
 }
 
+/* FASE 9B/9D — a dormant agent (IDLE/NOT_IN_LATEST_RUN — see
+   living-lab-room.tsx's own isAgentActive()) recedes into the organism
+   instead of reading as a labeled card sitting beside the Core. FASE 9D
+   pushes this further per "reduzir drasticamente texto permanente": a
+   dormant orb's name/state caption is nearly invisible at rest, appearing
+   only on real hover/focus of that exact orb — opacity only, never
+   display:none, so the text stays in the DOM and in the orb's own
+   aria-label regardless, nothing is ever lost for assistive tech. An
+   active agent's caption stays fully visible always — that text is real,
+   current information, not permanent decoration. */
+.qg-agent-orb-dormant .qg-agent-orb-label,
+.qg-agent-orb-dormant .qg-agent-orb-state {
+  opacity: 0.12;
+  transition: opacity 0.2s ease;
+}
+
+.qg-agent-orb-dormant:hover .qg-agent-orb-label,
+.qg-agent-orb-dormant:hover .qg-agent-orb-state,
+.qg-agent-orb-dormant:focus-visible .qg-agent-orb-label,
+.qg-agent-orb-dormant:focus-visible .qg-agent-orb-state {
+  opacity: 0.85;
+}
+
+.qg-agent-orb-dormant .qg-agent-orb-core {
+  opacity: 0.55;
+}
+
 /* FASE 2 — ReasoningGraph: a straight spoke from the Core to each real
    agent, nothing else (no mesh, no force-directed layout) — see
    reasoning-graph.tsx. Sits between the Core (behind) and the agent ring
@@ -231,14 +341,18 @@ body {
 }
 
 .qg-graph-spoke line {
-  stroke: rgba(143, 216, 255, 0.18);
-  stroke-width: 0.25;
+  stroke: rgba(210, 200, 230, 0.1);
+  stroke-width: 0.22;
   vector-effect: non-scaling-stroke;
-  transition: stroke 0.6s ease;
+  transition: stroke 0.6s ease, filter 0.6s ease;
 }
 
+/* FASE 9B — a soft glow (not a thicker/brighter line alone) on the spokes
+   that are genuinely carrying real activity — reads as energy traveling
+   through the organism rather than a technical diagram's highlighted edge. */
 .qg-graph-spoke-active line {
-  stroke: rgba(159, 232, 255, 0.75);
+  stroke: rgba(201, 220, 255, 0.8);
+  filter: drop-shadow(0 0 2.5px rgba(201, 220, 255, 0.55));
 }
 
 .qg-graph-flow-dot {
@@ -330,6 +444,10 @@ body {
    where the radial ring's own labels would start overlapping each other. */
 .qg-agent-list-mobile {
   display: none;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
 }
 
 .qg-agent-chip {
@@ -357,21 +475,85 @@ body {
    (pre-existing, out of scope here) squeezing the column further. A
    wrapped row of small chips (AgentChip) stays legible where the ring
    wouldn't; same data, same click target, different shape. */
+/*
+ * FASE 9D — mobile keeps the exact same absolute-stage structure as
+ * desktop (Core centered slightly above middle, agent cluster just below
+ * it, bottom cluster pinned low) — never a shrunk-down copy of the desktop
+ * layout, just smaller/adjusted offsets for the narrower column the
+ * pre-existing, out-of-scope AppShell sidebar leaves available.
+ */
 @media (max-width: 30rem) {
+  /* The two corner marks collide at this width: the AppShell's fixed 14rem
+     sidebar (pre-existing, out of scope) leaves so little column width that
+     a real status label ("Atenção recomendada" etc., whatever length the
+     current GlobalQgStatus happens to produce) runs into "Voltar ao LAB" on
+     the opposite corner. Both texts stay real and present for assistive
+     tech (the Link already carries its own aria-label; the status label
+     gets the standard visually-hidden-not-removed treatment below) — only
+     their visible glyphs step aside so the colored dot and the back arrow
+     can do the job on a screen this narrow. */
+  .qg-corner {
+    gap: 0.35rem;
+  }
+
+  .qg-mark span {
+    display: none;
+  }
+
+  .qg-status-chip-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   .qg-agent-ring {
     display: none;
   }
 
+  /* A wrapped row of 7 chips with full agent names has no bounded height in
+     this narrow a column — it was growing tall enough to collide with the
+     bottom cluster. A single horizontally-scrollable row keeps its height
+     fixed regardless of how many agents exist or how long their names are.
+     FASE 9E — now that /qg renders fullscreen (no more AppShell sidebar
+     eating the column, see app-shell.tsx), the real gap between the Core's
+     bottom edge and the bottom cluster's top edge sits around 50% of the
+     viewport height, not 65% — the old value was tuned against the
+     sidebar-constrained width, where the bottom cluster itself was much
+     narrower and wrapped its text/pills into far more, shorter lines. */
   .qg-agent-list-mobile {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0.5rem;
-    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    justify-content: flex-start;
+    gap: 0.4rem;
+    max-width: 84%;
+    padding: 0 0.2rem;
+    top: 52%;
   }
 
+  .qg-agent-chip {
+    flex-shrink: 0;
+  }
+
+  /* FASE 9E — /qg no longer shares the viewport with the AppShell sidebar
+     (app-shell.tsx renders it fullscreen), so the Core gets the real ~390px
+     of device width back instead of the ~166px the sidebar used to leave.
+     Sized up accordingly ("Core deve recuperar espaço" per the brief) while
+     keeping enough clearance above the bottom cluster for the agent strip. */
   .qg-core-stage {
-    width: min(60%, 32rem);
+    width: min(56%, 13rem);
+    top: 33%;
+  }
+
+  .qg-bottom-cluster {
+    bottom: 3%;
+    gap: 0.5rem;
   }
 }
 
@@ -389,14 +571,15 @@ body {
 }
 
 .qg-synthesis-alert {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 700;
+  letter-spacing: 0.03em;
   color: var(--qg-gold);
 }
 
 .qg-synthesis-line {
-  font-size: 0.875rem;
-  color: #f2f4ff;
+  font-size: 0.8125rem;
+  color: rgba(242, 244, 255, 0.72);
 }
 
 .qg-synthesis-meta {
@@ -422,46 +605,122 @@ body {
   cursor: pointer;
 }
 
-/* The command dock — the one place the brief wants an actual interface. Kept
-   in normal flow (not pinned absolute) so it never overlaps the minimal
-   links row below it regardless of viewport height or content length. */
+/* FASE 9D — the command dock is now just the width-100% flex wrapper inside
+   .qg-bottom-cluster (globals.css, near .qg-core-stage), which already owns
+   the real absolute positioning at the bottom of the stage. */
 .qg-command-dock {
-  position: relative;
-  z-index: 2;
   width: 100%;
   display: flex;
   justify-content: center;
-  padding: 0 1rem;
+}
+
+.qg-bottom-cluster {
+  position: absolute;
+  left: 50%;
+  bottom: 4%;
+  transform: translateX(-50%);
+  width: min(92%, 42rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  z-index: 5;
 }
 
 /* Re-skins the unmodified CommandCenterConsole for the dark/cosmic space by
    overriding the same tokens its existing Tailwind classes already consume
-   — zero changes to command-center.tsx itself. */
+   — zero changes to command-center.tsx itself. FASE 9B extends this same
+   "reskin externally only" pattern to go further: child selectors below
+   target CommandCenterConsole's own real form/button structure (a React
+   Fragment, so its form/button elements land as direct children of this
+   scope in the real DOM) to turn the same unmodified markup into a floating
+   glass pill instead of a bordered search box — still zero changes to
+   command-center.tsx. */
 .qg-command-scope {
   width: 100%;
-  max-width: 34rem;
+  max-width: 36rem;
   --background: #0b0f24;
   --foreground: #f2f4ff;
   --muted: #8d95c2;
   --border: #272e57;
   --surface: #11173a;
   --accent: #6fe0ff;
-  border-radius: 0.75rem;
-  box-shadow: 0 0 0 1px var(--border), 0 20px 40px -20px rgba(0, 0, 0, 0.6);
 }
 
-/* The secondary, low-priority feature links (Entrada, Relógio, Missions,
-   Workshop, Mesa de reunião, Arquivo, Relatórios, Findings) — real
-   functionality, kept reachable but deliberately quiet so it never
-   competes with the Core. */
+/* FASE 9D — the shared Panel overlay (panel.tsx) is QG-only (every caller —
+   Agent/Head/Meeting/Reports/Clock/Command Center — lives in src/app/qg),
+   but it renders through a portal straight onto document.body, outside any
+   of this stage's own dark-scoped wrappers, so without this it still fell
+   back to the site-wide light `--background`/`--foreground` tokens every
+   other (non-QG) page genuinely needs — the exact "dashboard popping up
+   over the organism" moment this phase's own validation caught live. Same
+   token-override reskin as .qg-command-scope above, zero changes to
+   panel.tsx's structure or to any of its callers' own logic. */
+.qg-panel-scope {
+  --background: #0b0f24;
+  --foreground: #f2f4ff;
+  --muted: #8d95c2;
+  --border: #272e57;
+  --accent: #6fe0ff;
+  /* Re-declaring `color` here (not just the custom property) matters: a
+     child with no explicit text-color utility (e.g. the plain `<p
+     className="font-medium">` titles throughout command-center.tsx's result
+     views) inherits the computed `color` from the nearest ancestor that
+     actually sets it — which, without this line, is still `body`'s
+     site-wide light-theme value, since `--foreground` alone only affects
+     elements that explicitly reference it via their own class. */
+  color: var(--foreground);
+}
+
+.qg-command-scope > form {
+  margin-top: 0;
+}
+
+.qg-command-scope > form > div {
+  border-radius: 999px !important;
+  border: none !important;
+  padding: 0.8rem 1.15rem !important;
+  background: rgba(255, 255, 255, 0.045) !important;
+  backdrop-filter: blur(22px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09), 0 20px 40px -20px rgba(0, 0, 0, 0.65);
+  transition: box-shadow 0.3s ease;
+}
+
+.qg-command-scope > form > div:focus-within {
+  box-shadow: inset 0 0 0 1px rgba(111, 224, 255, 0.45), 0 20px 40px -20px rgba(0, 0, 0, 0.65);
+}
+
+/* FASE 9C — "Quick Actions devem ser discretas... não ocupar grande parte
+   da tela": quiet until the human actually engages the command dock (hover
+   or focus, including Tab-ing into one of these buttons directly), never
+   hidden outright — opacity, not display:none, so nothing is removed from
+   the accessibility tree or keyboard tab order. */
+.qg-command-scope > div {
+  justify-content: center;
+  opacity: 0.32;
+  transition: opacity 0.25s ease;
+}
+
+.qg-command-scope:hover > div,
+.qg-command-scope:focus-within > div {
+  opacity: 1;
+}
+
+.qg-command-scope > div > button {
+  border-radius: 999px !important;
+  border-color: rgba(255, 255, 255, 0.09) !important;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* FASE 9D — the secondary feature links (Entrada, Relógio, Missions,
+   Workshop, Mesa de reunião, Arquivo, Relatórios, Findings) no longer form
+   a permanent footer strip across the main stage at all ("Não quero footer
+   visual tradicional") — they live inside the Quick View drawer now,
+   reachable on demand, same real hrefs/aria-labels, same click targets. */
 .qg-minimal-links {
-  position: relative;
-  z-index: 2;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.5rem 1rem;
-  max-width: 40rem;
+  gap: 0.4rem 0.75rem;
 }
 
 .qg-minimal-link {
@@ -469,30 +728,44 @@ body {
   align-items: center;
   gap: 0.3rem;
   font-size: 0.7rem;
-  color: rgba(242, 244, 255, 0.55);
+  letter-spacing: 0.01em;
+  color: rgba(242, 244, 255, 0.6);
   background: none;
   border: none;
   padding: 0.2rem 0.3rem;
   cursor: pointer;
+  transition: color 0.2s ease;
 }
 
 .qg-minimal-link:hover {
-  color: #f2f4ff;
+  color: rgba(242, 244, 255, 0.9);
 }
 
+/* FASE 9D — the Quick View drawer is now a real overlay (position: fixed),
+   not a flex sidebar sharing space with the main stage — opening it never
+   reflows or shrinks the organism underneath; it floats over it, like the
+   brief's own "interface flutuante sobre o ambiente." It carries the full
+   Navigator and the secondary feature links now too (moved out of the
+   permanent header/footer — see .qg-navigator/.qg-minimal-links above). */
 .qg-quickview {
-  position: relative;
-  z-index: 2;
-  border-left: 1px solid rgba(242, 244, 255, 0.12);
-  background: rgba(11, 15, 36, 0.6);
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: 18rem;
+  max-width: 85vw;
+  padding: 1rem;
+  overflow-y: auto;
+  border-left: 1px solid rgba(242, 244, 255, 0.1);
+  background: rgba(11, 15, 36, 0.78);
+  backdrop-filter: blur(18px);
   color: #f2f4ff;
 }
 
-/* The slim, discreet wayfinding strip above the Core — a small terminal
-   readout, never a SaaS nav bar. The protagonist is the Core. Colors are
-   hardcoded (not var(--muted)/var(--foreground)) because the living space
-   is always dark/cosmic, independent of the OS color scheme those tokens
-   follow elsewhere in the product. */
+/* The wayfinding nav — now inside the on-demand Quick View drawer rather
+   than a permanent strip, so it no longer needs to dim/reveal on hover;
+   opening the drawer at all is already the explicit, opt-in interaction. */
 .qg-navigator {
   display: flex;
   flex-wrap: wrap;
