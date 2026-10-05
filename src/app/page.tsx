@@ -23,7 +23,16 @@ export default async function DashboardPage() {
     agentExecutionCount > 0
       ? `${agentExecutionCount} agent execution${agentExecutionCount === 1 ? "" : "s"} recorded so far.`
       : "No agent has run yet.";
-  const description = `AI Product Lab is where a team of specialist agents evaluates real products and turns findings into recommendations. ${activitySummary} Start by opening Projects below.`;
+  // "Start by opening Projects below" implied an openable list sitting
+  // right under it; what's actually there is just the Projects count tile
+  // (Recommendation cmuujbic600085p7d2xjl83xv, FASE 17's real E2E).
+  //
+  // The product's own trust guarantee (a human reviews every recommendation
+  // before anything is implemented) was invisible on this page — a visitor
+  // reading only "turns findings into recommendations" has no reason to
+  // assume a human stays in control (Recommendation cmuv3xgvh0008227duo8v3nl8,
+  // FINAL VALIDATION's own real E2E, product-agent finding).
+  const description = `AI Product Lab is where a team of specialist agents evaluates real products and turns findings into recommendations a human reviews and decides on. ${activitySummary} See your projects below.`;
 
   const stats = [
     { label: "Projects", value: projects.length, href: "/projects" },
@@ -47,6 +56,14 @@ export default async function DashboardPage() {
             </Link>
           ))}
         </div>
+        {/* Recommendation cmuv3xgvh0009227d4z04ejmz (FINAL VALIDATION, ux-agent
+            finding) asked for some signal of pending decisions on this page.
+            This is a static pointer to /qg only, never a real pending count —
+            computing that here would be a bigger change than this fix is
+            meant to be. */}
+        <Link href="/qg" className="mt-4 inline-block text-sm text-muted underline-offset-4 hover:underline">
+          Pending decisions → /qg
+        </Link>
       </div>
     </>
   );

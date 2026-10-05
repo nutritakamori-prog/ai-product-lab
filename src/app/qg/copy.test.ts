@@ -98,7 +98,11 @@ describe("LAB QG living interface", () => {
   it("gives Recommendations the loudest treatment whenever one is pending, and a calm synthesis otherwise", () => {
     expect(roomSource).toMatch(/hasPending/);
     expect(roomSource).toMatch(/Precisa da sua atenção/);
-    expect(roomSource).toMatch(/Analisar/);
+    // FASE 18 — the CTA now opens the real decision panel in place (never
+    // just a link away to a different page): human-in-the-loop has to be
+    // directly actionable, not buried behind a navigation.
+    expect(roomSource).toMatch(/Decidir agora/);
+    expect(roomSource).toContain('onOpenDecision={() => setPanel({ type: "decision" })}');
   });
 
   it("renders Findings as a real panel sourced from the latest report, distinct from Recommendations", () => {

@@ -20,6 +20,8 @@ export const QG_COMMAND_IDS = [
   "IGNORE_RECOMMENDATION",
   "CREATE_IMPLEMENTATION",
   "CREATE_VALIDATION",
+  "COMPLETE_IMPLEMENTATION",
+  "RUN_RETEST",
 ] as const;
 export type QgCommandId = (typeof QG_COMMAND_IDS)[number];
 
@@ -29,8 +31,22 @@ export type QgCommandId = (typeof QG_COMMAND_IDS)[number];
  * action-executor.ts and its Server Action) as a runtime allow-list — a
  * Server Action is callable directly over the network, outside TypeScript's
  * own type checking, so this is re-validated at runtime, not just typed.
+ *
+ * FASE 18 — COMPLETE_IMPLEMENTATION and RUN_RETEST close the two real gaps
+ * FASE 17 found: there was no conversational/QG action to mark a real
+ * Implementation COMPLETED, and CREATE_VALIDATION could never attach real
+ * retest evidence. Both still go through the exact same token-gated
+ * confirmation flow every other action here already requires — no new
+ * bypass, no new architecture.
  */
-export const QG_ACTION_IDS = ["APPROVE_RECOMMENDATION", "IGNORE_RECOMMENDATION", "CREATE_IMPLEMENTATION", "CREATE_VALIDATION"] as const;
+export const QG_ACTION_IDS = [
+  "APPROVE_RECOMMENDATION",
+  "IGNORE_RECOMMENDATION",
+  "CREATE_IMPLEMENTATION",
+  "CREATE_VALIDATION",
+  "COMPLETE_IMPLEMENTATION",
+  "RUN_RETEST",
+] as const;
 export type QgActionId = (typeof QG_ACTION_IDS)[number];
 
 export function isQgActionId(value: string): value is QgActionId {
@@ -94,6 +110,16 @@ export const QG_COMMANDS: QgCommandDefinition[] = [
     id: "CREATE_VALIDATION",
     label: "Criar validação",
     phrases: ["criar validação", "criar validacao", "criar validation"],
+  },
+  {
+    id: "COMPLETE_IMPLEMENTATION",
+    label: "Concluir implementação",
+    phrases: ["concluir implementação", "concluir implementacao", "concluir implementation", "marcar implementação como concluída"],
+  },
+  {
+    id: "RUN_RETEST",
+    label: "Validar alteração",
+    phrases: ["validar alteração", "validar alteracao", "rodar reteste real", "executar reteste real"],
   },
 ];
 

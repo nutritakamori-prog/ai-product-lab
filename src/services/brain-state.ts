@@ -5,12 +5,41 @@
  * in operational-brain.ts's server-only graph (Prisma, the Agent Runtime,
  * the Evaluation Orchestrator) into the browser bundle. No logic lives
  * here, only the shape both sides agree on.
+ *
+ * `ProductConcept` is imported as a type only — product-understanding.ts is
+ * itself dependency-free (no DB, no provider), so this stays a plain,
+ * browser-safe module.
  */
+import type { ProductConcept } from "@/core/product-understanding/product-understanding";
+
 export interface BrainState {
   projectId: string | null;
   projectName: string | null;
   missionRunId: string | null;
   lastRecommendationId: string | null;
+  /**
+   * FASE 16A — the Product Understanding concept the Brain's PREVIOUS reply
+   * answered, if any. Exists only so a weak, pronoun-dependent follow-up
+   * ("E os agentes?", "Então me resume tudo.") can be read as a continuation
+   * of that same conceptual conversation — see
+   * classifyProductConceptContinuation() in operational-brain.ts. reply()
+   * clears this to null on every reply that ISN'T itself a Product
+   * Understanding answer, so the window is exactly one turn: never assumed
+   * from "any earlier message", only the immediately preceding one (FASE
+   * 16A's own safety rule).
+   */
+  lastProductConcept: ProductConcept | null;
+  /**
+   * FASE 19 — Team Architect. Which Team Intelligence/Architect question
+   * the Brain's PREVIOUS reply answered, if any — exists only so a weak,
+   * pronoun-dependent follow-up ("Qual seria?" right after "Precisamos de
+   * algum agente novo?") can be read as "tell me more about that", the
+   * same continuation discipline lastProductConcept already established.
+   * reply() clears this on every reply that isn't itself a Team
+   * Intelligence/Architect answer — never assumed from any earlier
+   * message, only the immediately preceding one.
+   */
+  lastTeamIntelligenceIntent: "OVERVIEW" | "UNDERUSED" | "REMOVE" | "DISABLE" | "ADD" | "GAP" | "OVERLAP" | "EVOLUTION" | null;
 }
 
 export const INITIAL_BRAIN_STATE: BrainState = {
@@ -18,6 +47,8 @@ export const INITIAL_BRAIN_STATE: BrainState = {
   projectName: null,
   missionRunId: null,
   lastRecommendationId: null,
+  lastProductConcept: null,
+  lastTeamIntelligenceIntent: null,
 };
 
 /**

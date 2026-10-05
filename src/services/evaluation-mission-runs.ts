@@ -34,6 +34,35 @@ export function getRunningMissionRun() {
   return db.evaluationMissionRun.findFirst({ where: { status: "RUNNING" }, orderBy: { createdAt: "desc" } });
 }
 
+/**
+ * FASE 13 — LAB Self-Awareness. getLatestMissionRun()'s own project-scoped
+ * sibling — that function is deliberately global (the QG has no project
+ * selector, see qg-command-router.ts's own resolveActiveProjectId doc
+ * comment), but a per-project "what's the most recent relevant evaluation"
+ * fact is exactly what this phase's own self-awareness snapshot needs and
+ * nothing existing already exposes. Same shape, same file, same style —
+ * not a second query engine.
+ */
+export function getLatestMissionRunForProject(projectId: string) {
+  return db.evaluationMissionRun.findFirst({ where: { projectId }, orderBy: { createdAt: "desc" } });
+}
+
+/**
+ * FASE 13 — LAB Self-Awareness. The most recent top-level FAILED run for one
+ * project — selected narrowly (just `error`/`createdAt`) since this exists
+ * only to ground a "the provider has failed recently" limitation in one
+ * real, traceable sample, never the raw payload itself (the caller is
+ * expected to humanize it the same way operational-brain.ts already does
+ * for a single mission's own error).
+ */
+export function getLatestFailedMissionRunForProject(projectId: string) {
+  return db.evaluationMissionRun.findFirst({
+    where: { projectId, status: "FAILED" },
+    orderBy: { createdAt: "desc" },
+    select: { error: true, createdAt: true },
+  });
+}
+
 /** FASE 11 — Mission Lifecycle. The real, interpreted shape the QG/Brain reasons about — never a guess about work still to happen. */
 export interface MissionLifecycle {
   missionRunId: string;

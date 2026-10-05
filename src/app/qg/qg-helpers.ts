@@ -8,6 +8,12 @@ import type { RecommendationStatus } from "@/generated/prisma/client";
  * PENDING). Never a new persisted status: this is a pure view over
  * EvaluationMissionRun.report + Recommendation.status, recomputed on every
  * read.
+ *
+ * FASE 18 — the real loop proven in FASE 17 doesn't stop at a decision:
+ * APPROVED/IMPLEMENTING/IMPLEMENTED/VALIDATED_PASSED/VALIDATED_FAILED are
+ * the same real progression (Recommendation.status + Implementation.status
+ * + Validation.status, all pre-existing), just finally surfaced here —
+ * still never a new persisted status, still a pure, recomputed view.
  */
 export type AgentQgState =
   | "IDLE"
@@ -18,7 +24,12 @@ export type AgentQgState =
   | "NO_FINDING"
   | "UNCONFIRMED"
   | "HAS_FINDING"
-  | "PENDING_DECISION";
+  | "PENDING_DECISION"
+  | "APPROVED"
+  | "IMPLEMENTING"
+  | "IMPLEMENTED"
+  | "VALIDATED_PASSED"
+  | "VALIDATED_FAILED";
 
 export const AGENT_STATE_LABEL: Record<AgentQgState, string> = {
   IDLE: "Sem atividade recente",
@@ -30,6 +41,11 @@ export const AGENT_STATE_LABEL: Record<AgentQgState, string> = {
   UNCONFIRMED: "Inconclusivo",
   HAS_FINDING: "Encontrou um problema",
   PENDING_DECISION: "Aguardando decisão",
+  APPROVED: "Aprovado — aguardando implementação",
+  IMPLEMENTING: "Em implementação",
+  IMPLEMENTED: "Implementado — aguardando reteste",
+  VALIDATED_PASSED: "Validado — problema resolvido",
+  VALIDATED_FAILED: "Validado — problema persiste",
 };
 
 /**
@@ -49,8 +65,17 @@ export function deriveAgentQgState(params: {
   requestedAgents: string[];
   coverageEntry: AgentEvaluationOutcome | undefined;
   hasPendingRecommendation: boolean;
+  /**
+   * FASE 18 — the real post-decision progression for the finding this
+   * agent reported (if any), already resolved by the caller from the real
+   * Recommendation/Implementation/Validation rows — undefined/null at any
+   * step this agent's own finding hasn't reached yet.
+   */
+  recommendationStatus?: RecommendationStatus | null;
+  implementationStatus?: "PENDING" | "IN_PROGRESS" | "COMPLETED" | null;
+  latestValidationStatus?: "PENDING" | "PASSED" | "FAILED" | "INCONCLUSIVE" | null;
 }): AgentQgState {
-  const { agentId, latestRunStatus, requestedAgents, coverageEntry, hasPendingRecommendation } = params;
+  const { agentId, latestRunStatus, requestedAgents, coverageEntry, hasPendingRecommendation, recommendationStatus, implementationStatus, latestValidationStatus } = params;
 
   if (latestRunStatus === null) return "IDLE";
   if (latestRunStatus === "RUNNING") {
@@ -63,7 +88,14 @@ export function deriveAgentQgState(params: {
   const outputStatus = coverageEntry.output?.status;
   if (outputStatus === "NO_FINDING") return "NO_FINDING";
   if (outputStatus === "UNCONFIRMED") return "UNCONFIRMED";
-  if (outputStatus === "FINDING") return hasPendingRecommendation ? "PENDING_DECISION" : "HAS_FINDING";
+  if (outputStatus === "FINDING") {
+    if (latestValidationStatus === "PASSED") return "VALIDATED_PASSED";
+    if (latestValidationStatus === "FAILED") return "VALIDATED_FAILED";
+    if (implementationStatus === "COMPLETED") return "IMPLEMENTED";
+    if (implementationStatus === "PENDING" || implementationStatus === "IN_PROGRESS") return "IMPLEMENTING";
+    if (recommendationStatus === "APPROVED") return "APPROVED";
+    return hasPendingRecommendation ? "PENDING_DECISION" : "HAS_FINDING";
+  }
   return "NOT_IN_LATEST_RUN";
 }
 

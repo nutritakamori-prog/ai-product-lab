@@ -34,14 +34,31 @@ import type { TeamIntelligenceSummary } from "@/core/team-intelligence/team-inte
 // current dataset size (see team-architect.test.ts for small, synthetic
 // fixtures proving each threshold's edge, not real production data).
 
-/** Minimum number of distinct occurrences before a repeated pattern counts as "recurring" rather than a single/anecdotal event. Below this, the Architect reports INSUFFICIENT_EVIDENCE instead of a recommendation. */
-const RECURRENCE_MIN = 3;
+/**
+ * Minimum number of distinct occurrences before a repeated pattern counts as
+ * "recurring" rather than a single/anecdotal event. Below this, the
+ * Architect reports INSUFFICIENT_EVIDENCE instead of a recommendation.
+ * Exported — FASE 12A's Team Intelligence Report reuses this exact bar
+ * (never a second, independently-tuned number) as its own LOW/MEDIUM
+ * confidence boundary, for the same reason it exists here: fewer than this
+ * many missions is still anecdotal, not yet a real sample.
+ */
+export const RECURRENCE_MIN = 3;
 
 /** Minimum number of INDEPENDENT convergence occurrences (the same agent group reporting equivalent findings more than once) before POSSIBLE_OVERLAP is proposed. A single shared finding is ordinary, healthy cross-checking, not a pattern — 2 is the smallest number that is no longer "once". */
 const OVERLAP_MIN_OCCURRENCES = 2;
 
-/** The stricter bar ADD_AGENT must clear beyond a bare POSSIBLE_MISSING_SPECIALIZATION. Proposing a brand-new agent is a bigger step than flagging a gap, so it needs materially more recurrence before even being considered as a recommendation rather than insufficient evidence. */
-const ADD_AGENT_MIN = 5;
+/**
+ * The stricter bar ADD_AGENT must clear beyond a bare
+ * POSSIBLE_MISSING_SPECIALIZATION. Proposing a brand-new agent is a bigger
+ * step than flagging a gap, so it needs materially more recurrence before
+ * even being considered as a recommendation rather than insufficient
+ * evidence. Exported — reused by FASE 12A's Team Intelligence Report as its
+ * own HIGH-confidence boundary: this is already the bar the codebase
+ * considers "a genuinely rich sample", so the overall report's confidence
+ * reuses it rather than inventing a second one.
+ */
+export const ADD_AGENT_MIN = 5;
 
 /** Minimum number of distinct classifications one agent has real findings in before its coverage looks broad enough to even raise SPLIT_RESPONSIBILITY as a question worth asking (never a recommendation in this version — see buildSplitSignal). */
 const SPLIT_CLASSIFICATION_SPAN_MIN = 4;

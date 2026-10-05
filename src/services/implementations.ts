@@ -40,6 +40,24 @@ export function getImplementation(id: string) {
   return db.implementation.findUnique({ where: { id }, include: { validations: true } });
 }
 
+/**
+ * FASE 18 — QG 2.0. The real gap FASE 17 found: nothing lets a human mark a
+ * real Implementation COMPLETED through the QG/Brain layer — only
+ * createImplementation() (always PENDING) was ever exposed there.
+ * updateImplementationStatus() already existed and is already tested
+ * (FASE 10B.3); this is the one small query the QG needs to list which real
+ * Implementations are still waiting for that step, scoped to a project the
+ * same way every other QG candidate list already is (via
+ * recommendation.missionRun.projectId — no denormalized copy, same
+ * precedent as createImplementation's own doc comment).
+ */
+export function listImplementationsAwaitingCompletion(projectId: string) {
+  return db.implementation.findMany({
+    where: { status: { in: ["PENDING", "IN_PROGRESS"] }, recommendation: { missionRun: { projectId } } },
+    include: { recommendation: true },
+  });
+}
+
 /** The same Recommendation → Implementation relation, looked up from the Recommendation's own side. Null when that Recommendation has no Implementation yet — a valid, expected state (FASE 10B.3 §8, case 10), never an error. */
 export function getImplementationForRecommendation(recommendationId: string) {
   return db.implementation.findUnique({ where: { recommendationId }, include: { validations: true } });

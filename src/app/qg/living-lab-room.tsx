@@ -3,10 +3,12 @@
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
-import { ArrowLeft, Archive, Clock, FileText, LogIn, Search, Users, Wrench } from "lucide-react";
+import { ArrowLeft, Archive, CheckCircle2, Clock, FileText, ListChecks, LogIn, Search, Users, Wrench } from "lucide-react";
 import { Panel } from "./panel";
 import type { AgentQgState, GlobalQgStatus, WeeklyReport } from "./qg-helpers";
 import { CommandCenterConsole, type CommandCenterActivity } from "./command-center";
+import { requestQgActionConfirmationAction, confirmQgActionAction } from "./qg-command-actions";
+import type { QgActionId } from "@/core/qg-command-router/qg-command-router";
 import { LabCore } from "./lab-core";
 import type { BurstEvent } from "./lab-core-scene";
 import { ReasoningGraph } from "./reasoning-graph";
@@ -40,7 +42,28 @@ export interface AgentStationData {
   stateLabel: string;
   lastMissionTarget: string | null;
   lastMissionDate: string | null;
-  findings: { text: string; recommendationId: string | null; recommendationStatus: string | null }[];
+  findings: {
+    text: string;
+    recommendationId: string | null;
+    recommendationStatus: string | null;
+    implementationId: string | null;
+    implementationStatus: string | null;
+    validationStatus: string | null;
+  }[];
+}
+
+/** FASE 18 — one step of the real Mission→...→Validation cycle, for the Timeline panel. "skipped" only after a real IGNORED decision (Implementation/Validation genuinely never happen then). */
+export interface CycleStep {
+  label: string;
+  status: "done" | "current" | "pending" | "skipped";
+}
+
+export interface PendingRecommendationSummary {
+  id: string;
+  title: string;
+  summary: string;
+  impact: string | null;
+  confidence: string | null;
 }
 
 export interface QgOfficeData {
@@ -62,6 +85,8 @@ export interface QgOfficeData {
   ignoredCount: number;
   missionHistoryCount: number;
   weeklyReport: WeeklyReport;
+  pendingRecommendations: PendingRecommendationSummary[];
+  cycle: CycleStep[] | null;
 }
 
 const STATUS_DOT: Record<GlobalQgStatus, string> = {
@@ -81,11 +106,161 @@ const AGENT_ORB_STYLE: Record<AgentQgState, { color: string; glow: string; speed
   UNCONFIRMED: { color: "#b08fff", glow: "rgba(176, 143, 255, 0.45)", speed: "4.5s", scale: 1 },
   HAS_FINDING: { color: "#ffcf5c", glow: "rgba(255, 207, 92, 0.6)", speed: "2.6s", scale: 1.05 },
   PENDING_DECISION: { color: "#ffb020", glow: "rgba(255, 176, 32, 0.8)", speed: "1.5s", scale: 1.12 },
+  // FASE 18 — the real post-decision progression, same visual family as
+  // PENDING_DECISION (a human-attention amber) cooling toward the two
+  // resolved outcomes (NO_FINDING's green for a confirmed fix, FAILED's red
+  // for a confirmed persisting problem) as the real cycle advances.
+  APPROVED: { color: "#f0a84a", glow: "rgba(240, 168, 74, 0.55)", speed: "4s", scale: 1.03 },
+  IMPLEMENTING: { color: "#7fe3ff", glow: "rgba(127, 227, 255, 0.5)", speed: "2.6s", scale: 1.05 },
+  IMPLEMENTED: { color: "#9fd6c0", glow: "rgba(159, 214, 192, 0.5)", speed: "4s", scale: 1.02 },
+  VALIDATED_PASSED: { color: "#6ee7c8", glow: "rgba(110, 231, 200, 0.6)", speed: "5s", scale: 1 },
+  VALIDATED_FAILED: { color: "#ff5d5d", glow: "rgba(255, 93, 93, 0.5)", speed: "3s", scale: 1.05 },
 };
 
 /** States worth the orb visually "reaching toward" the Core and counting as part of the ReasoningGraph's active spokes — a station that's IDLE or simply wasn't part of the latest run has nothing live to show. */
 function isAgentActive(state: AgentQgState): boolean {
   return state !== "IDLE" && state !== "NOT_IN_LATEST_RUN";
+}
+
+/**
+ * FASE 18 — Human-in-the-loop, made directly actionable outside the
+ * Command Center's own chat flow. Reuses the exact same two real Server
+ * Actions (requestQgActionConfirmationAction -> real single-use token ->
+ * confirmQgActionAction) command-center.tsx's own confirm flow already
+ * uses — no shortcut, no direct call to executeQgAction, no mutation ever
+ * happens before a human explicitly clicks Confirmar here too.
+ */
+type ActionFlowState =
+  | { status: "idle" }
+  | { status: "awaiting"; token: string }
+  | { status: "executing" }
+  | { status: "done"; message: string; failed: boolean };
+
+function useQgActionFlow(action: QgActionId, targetId: string) {
+  const [state, setState] = useState<ActionFlowState>({ status: "idle" });
+
+  async function start() {
+    setState({ status: "executing" });
+    const confirmation = await requestQgActionConfirmationAction(action, targetId);
+    if (confirmation.status === "ERROR") {
+      setState({ status: "done", message: confirmation.message, failed: true });
+      return;
+    }
+    setState({ status: "awaiting", token: confirmation.token });
+  }
+
+  async function confirm() {
+    if (state.status !== "awaiting") return;
+    const token = state.token;
+    setState({ status: "executing" });
+    const result = await confirmQgActionAction(action, targetId, token);
+    setState({ status: "done", message: result.message, failed: result.status === "ERROR" });
+  }
+
+  function cancel() {
+    setState({ status: "idle" });
+  }
+
+  return { state, start, confirm, cancel };
+}
+
+/** The small, shared confirm/result UI every direct action button below renders once a flow starts — same visual language as command-center.tsx's own ConfirmationView, just embedded directly in a panel instead of behind a chat turn. */
+function ActionFlowBox({ flow, confirmLabel, description }: { flow: ReturnType<typeof useQgActionFlow>; confirmLabel: string; description: string }) {
+  const { state, confirm, cancel } = flow;
+  if (state.status === "idle") return null;
+  if (state.status === "executing") return <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-muted">Processando...</p>;
+  if (state.status === "done") {
+    return (
+      <p className={`mt-2 text-[11px] font-medium ${state.failed ? "text-red-600" : "text-emerald-600"}`}>
+        {state.failed ? "Não foi possível executar: " : "Concluído: "}
+        {state.message}
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 rounded-md border border-accent/40 bg-accent/5 p-2">
+      <p className="text-[11px]">{description}</p>
+      <div className="mt-2 flex gap-2">
+        <button type="button" onClick={confirm} className="rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-white hover:bg-accent/90">
+          {confirmLabel}
+        </button>
+        <button type="button" onClick={cancel} className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium hover:bg-foreground/[0.04]">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The real, visible pillar this phase asks for: "O LAB recomenda. Você decide." — one real PENDING Recommendation, with real Aprovar/Rejeitar buttons wired to the same token-gated flow above. Never a mutation before the human clicks Confirmar. */
+function RecommendationDecisionCard({ recommendation }: { recommendation: PendingRecommendationSummary }) {
+  const approve = useQgActionFlow("APPROVE_RECOMMENDATION", recommendation.id);
+  const ignore = useQgActionFlow("IGNORE_RECOMMENDATION", recommendation.id);
+  const activeFlow = approve.state.status !== "idle" ? approve : ignore.state.status !== "idle" ? ignore : null;
+
+  return (
+    <div className="rounded-md border border-accent/40 bg-accent/5 p-3 text-xs">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-accent">Decisão necessária</p>
+      <p className="mt-1 font-medium">{recommendation.title}</p>
+      <p className="mt-1 text-muted">{recommendation.summary}</p>
+      <p className="mt-1 text-muted">
+        Impacto: {recommendation.impact ?? "—"} · Confiança: {recommendation.confidence ?? "—"}
+      </p>
+      {activeFlow ? (
+        <ActionFlowBox
+          flow={activeFlow}
+          confirmLabel={activeFlow === approve ? "Confirmar aprovação" : "Confirmar rejeição"}
+          description={activeFlow === approve ? "Esta Recommendation será marcada como APPROVED." : "Esta Recommendation será marcada como IGNORED."}
+        />
+      ) : (
+        <div className="mt-2 flex gap-2">
+          <button type="button" onClick={approve.start} className="rounded-md bg-accent px-3 py-1.5 text-[11px] font-medium text-white hover:bg-accent/90">
+            Aprovar
+          </button>
+          <button type="button" onClick={ignore.start} className="rounded-md border border-border px-3 py-1.5 text-[11px] font-medium hover:bg-foreground/[0.04]">
+            Rejeitar
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** FASE 18 — the real post-approval actions, directly where an agent's finding is already shown: mark the real Implementation COMPLETED, or run a real retest and record a real Validation. Never shown unless the real data already supports that transition. */
+function ImplementationActions({ implementationId, implementationStatus }: { implementationId: string; implementationStatus: string }) {
+  const complete = useQgActionFlow("COMPLETE_IMPLEMENTATION", implementationId);
+  const retest = useQgActionFlow("RUN_RETEST", implementationId);
+  const activeFlow = complete.state.status !== "idle" ? complete : retest.state.status !== "idle" ? retest : null;
+
+  if (activeFlow) {
+    return (
+      <ActionFlowBox
+        flow={activeFlow}
+        confirmLabel={activeFlow === complete ? "Confirmar conclusão" : "Confirmar reteste"}
+        description={
+          activeFlow === complete
+            ? "Esta Implementation será marcada como COMPLETED."
+            : "Uma nova Mission real de reteste será executada contra o mesmo alvo e os mesmos agentes do finding original."
+        }
+      />
+    );
+  }
+
+  if (implementationStatus === "PENDING" || implementationStatus === "IN_PROGRESS") {
+    return (
+      <button type="button" onClick={complete.start} className="mt-2 rounded-md border border-accent px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/10">
+        Marcar implementação como concluída
+      </button>
+    );
+  }
+  if (implementationStatus === "COMPLETED") {
+    return (
+      <button type="button" onClick={retest.start} className="mt-2 rounded-md border border-accent px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/10">
+        Validar alteração
+      </button>
+    );
+  }
+  return null;
 }
 
 type PanelState =
@@ -96,6 +271,8 @@ type PanelState =
   | { type: "meeting" }
   | { type: "reports" }
   | { type: "clock" }
+  | { type: "decision" }
+  | { type: "timeline" }
   | null;
 
 /**
@@ -106,14 +283,24 @@ type PanelState =
  * into every contributing station. No new data, no fuzzy matching.
  */
 function buildDiscoveryFindings(stations: AgentStationData[]) {
-  const byText = new Map<string, { text: string; agentNames: string[]; recommendationStatus: string | null }>();
+  const byText = new Map<
+    string,
+    { text: string; agentNames: string[]; recommendationStatus: string | null; implementationId: string | null; implementationStatus: string | null; validationStatus: string | null }
+  >();
   for (const station of stations) {
     for (const finding of station.findings) {
       const existing = byText.get(finding.text);
       if (existing) {
         if (!existing.agentNames.includes(station.name)) existing.agentNames.push(station.name);
       } else {
-        byText.set(finding.text, { text: finding.text, agentNames: [station.name], recommendationStatus: finding.recommendationStatus });
+        byText.set(finding.text, {
+          text: finding.text,
+          agentNames: [station.name],
+          recommendationStatus: finding.recommendationStatus,
+          implementationId: finding.implementationId,
+          implementationStatus: finding.implementationStatus,
+          validationStatus: finding.validationStatus,
+        });
       }
     }
   }
@@ -230,7 +417,7 @@ function MinimalLink({
 }
 
 /** The mission synthesis — the one piece of contextual text the brief asks for, reusing exactly the numbers page.tsx already computed. Recommendations pending is folded in here (the loudest line) instead of being a separate object. Head has no orb of its own (decision: stays conceptually part of the Core) — this panel, sitting directly beneath the Core, is where its voice lives. */
-function MissionSynthesis({ data, onOpenHead }: { data: QgOfficeData; onOpenHead: () => void }) {
+function MissionSynthesis({ data, onOpenHead, onOpenDecision }: { data: QgOfficeData; onOpenHead: () => void; onOpenDecision: () => void }) {
   const hasPending = data.pendingCount > 0;
   return (
     <div className="qg-synthesis">
@@ -240,9 +427,9 @@ function MissionSynthesis({ data, onOpenHead }: { data: QgOfficeData; onOpenHead
           <p className="qg-synthesis-line">
             {data.pendingCount} recommendation{data.pendingCount === 1 ? "" : "s"} aguardando decisão
           </p>
-          <Link href="/product-intelligence" className="qg-synthesis-cta">
-            Analisar
-          </Link>
+          <button type="button" onClick={onOpenDecision} className="qg-synthesis-cta">
+            Decidir agora
+          </button>
         </>
       ) : (
         <>
@@ -539,7 +726,7 @@ export function LivingLabRoom({ data }: { data: QgOfficeData }) {
           bottom cluster, absolutely anchored — never pushing or being pushed
           by anything else, since nothing else is in normal flow anymore. */}
       <div className="qg-bottom-cluster">
-        <MissionSynthesis data={data} onOpenHead={() => setPanel({ type: "head" })} />
+        <MissionSynthesis data={data} onOpenHead={() => setPanel({ type: "head" })} onOpenDecision={() => setPanel({ type: "decision" })} />
         <div className="qg-command-dock">
           <div className="qg-command-scope">
             <CommandCenterConsole onActivity={handleCommandActivity} />
@@ -625,6 +812,18 @@ export function LivingLabRoom({ data }: { data: QgOfficeData }) {
               onClick={() => setPanel({ type: "findings" })}
               ariaLabel={`Findings — ${discoveryFindings.length} descoberta(s) na última avaliação`}
             />
+            <MinimalLink
+              icon={<CheckCircle2 size={14} />}
+              label="Decisão"
+              onClick={() => setPanel({ type: "decision" })}
+              ariaLabel={`Decisão — ${data.pendingCount} recommendation(s) aguardando decisão`}
+            />
+            <MinimalLink
+              icon={<ListChecks size={14} />}
+              label="Timeline"
+              onClick={() => setPanel({ type: "timeline" })}
+              ariaLabel="Timeline — ciclo atual Mission → Validation"
+            />
           </div>
         </aside>
       ) : null}
@@ -686,7 +885,12 @@ export function LivingLabRoom({ data }: { data: QgOfficeData }) {
                   <p className="mt-1 text-muted">
                     Encontrado por: {f.agentNames.join(", ")}
                     {f.recommendationStatus ? ` · Recommendation: ${f.recommendationStatus}` : ""}
+                    {f.implementationStatus ? ` · Implementation: ${f.implementationStatus}` : ""}
+                    {f.validationStatus ? ` · Validation: ${f.validationStatus}` : ""}
                   </p>
+                  {f.implementationId && f.implementationStatus ? (
+                    <ImplementationActions implementationId={f.implementationId} implementationStatus={f.implementationStatus} />
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -718,6 +922,11 @@ export function LivingLabRoom({ data }: { data: QgOfficeData }) {
                 <div key={i} className="rounded-md border border-border p-3 text-xs">
                   <p>{f.text}</p>
                   {f.recommendationStatus ? <p className="mt-1 text-muted">Recommendation: {f.recommendationStatus}</p> : null}
+                  {f.implementationStatus ? <p className="mt-1 text-muted">Implementation: {f.implementationStatus}</p> : null}
+                  {f.validationStatus ? <p className="mt-1 text-muted">Validation: {f.validationStatus}</p> : null}
+                  {f.implementationId && f.implementationStatus ? (
+                    <ImplementationActions implementationId={f.implementationId} implementationStatus={f.implementationStatus} />
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -774,7 +983,52 @@ export function LivingLabRoom({ data }: { data: QgOfficeData }) {
       ) : null}
 
       {panel?.type === "clock" ? <ClockPanel latestMission={data.latestMission} onClose={() => setPanel(null)} /> : null}
+
+      {panel?.type === "decision" ? (
+        <Panel title="Decisão necessária — o LAB recomenda, você decide" onClose={() => setPanel(null)}>
+          {data.pendingRecommendations.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              {data.pendingRecommendations.map((r) => (
+                <RecommendationDecisionCard key={r.id} recommendation={r} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted">Nenhuma decisão pendente agora.</p>
+          )}
+        </Panel>
+      ) : null}
+
+      {panel?.type === "timeline" ? (
+        <Panel title="Timeline do ciclo" onClose={() => setPanel(null)}>
+          {data.cycle ? <TimelineView cycle={data.cycle} /> : <p className="text-muted">Nenhum ciclo em andamento — nenhuma Mission executada ainda.</p>}
+        </Panel>
+      ) : null}
     </div>
+  );
+}
+
+const CYCLE_STEP_MARK: Record<CycleStep["status"], string> = { done: "✓", current: "●", pending: "○", skipped: "—" };
+const CYCLE_STEP_COLOR: Record<CycleStep["status"], string> = {
+  done: "text-emerald-600",
+  current: "text-amber-500",
+  pending: "text-muted",
+  skipped: "text-muted",
+};
+
+/** FASE 18 — the real Mission→...→Validation cycle, spatial/visual rather than technical: just a vertical list of real ✓/●/○ marks, exactly the shape the brief's own example asks for. */
+function TimelineView({ cycle }: { cycle: CycleStep[] }) {
+  return (
+    <ol className="flex flex-col gap-1.5 text-xs">
+      {cycle.map((step) => (
+        <li key={step.label} className={`flex items-center gap-2 ${CYCLE_STEP_COLOR[step.status]}`}>
+          <span aria-hidden className="w-4 text-center font-medium">
+            {CYCLE_STEP_MARK[step.status]}
+          </span>
+          <span className={step.status === "done" || step.status === "current" ? "text-foreground" : ""}>{step.label}</span>
+          {step.status === "skipped" ? <span className="text-[10px]">(não aplicável — recommendation ignorada)</span> : null}
+        </li>
+      ))}
+    </ol>
   );
 }
 

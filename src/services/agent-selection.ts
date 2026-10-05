@@ -29,6 +29,16 @@ export interface AgentSelectionResult {
   general: boolean;
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchCategories(text: string): string[] {
+  return Object.entries(CATEGORY_KEYWORDS)
+    .filter(([, pattern]) => pattern.test(text))
+    .map(([category]) => category);
+}
+
 /**
  * Picks which real, currently-enabled agents are relevant to a mission from
  * the message text alone — deterministic keyword rules against each agent's
@@ -36,19 +46,37 @@ export interface AgentSelectionResult {
  * "everyone" unless the message explicitly asks for a general/complete
  * evaluation (the brief's own stated rule: "Não executar todos os agentes
  * por padrão").
+ *
+ * FASE 14B — `projectName`, when given, is stripped out before deciding
+ * which categories were really mentioned. Found live in FASE 14's own
+ * end-to-end run: "Analisa o AI Product Lab." was narrowing to only
+ * product-agent, because the word "Product" in the project's OWN NAME
+ * matched CATEGORY_KEYWORDS.PRODUCT — not because the user asked about
+ * product functionality. A category that appears only inside the
+ * project's name is not a real request; one that ALSO appears outside it
+ * (e.g. "Analisa a área de Product do AI Product Lab.") still counts,
+ * since stripping removes only that one substring, not the word itself
+ * wherever else it occurs in the message.
  */
-export async function selectAgentsForMission(message: string): Promise<AgentSelectionResult> {
+export async function selectAgentsForMission(message: string, projectName?: string): Promise<AgentSelectionResult> {
   const enabled = (await listAgents()).filter((a) => a.enabled);
 
   if (GENERAL_EVALUATION.test(message)) {
     return { agents: enabled, reason: "Avaliação geral pedida explicitamente — todos os agentes habilitados participam.", general: true };
   }
 
-  const matchedCategories = Object.entries(CATEGORY_KEYWORDS)
-    .filter(([, pattern]) => pattern.test(message))
-    .map(([category]) => category);
+  const rawMatches = matchCategories(message);
+  const withoutProjectName = projectName ? message.replace(new RegExp(escapeRegExp(projectName), "gi"), " ") : message;
+  const matchedCategories = matchCategories(withoutProjectName);
 
   if (matchedCategories.length === 0) {
+    if (rawMatches.length > 0) {
+      // Every match came solely from inside the project's own name — the
+      // user requested no real specialty, so this is a general request,
+      // never a silent narrowing to whichever category the name happens
+      // to contain.
+      return { agents: enabled, reason: "Nenhuma especialidade específica foi pedida — avaliação geral com todos os agentes habilitados.", general: true };
+    }
     return { agents: [], reason: "Nenhuma palavra-chave de especialidade reconhecida na mensagem.", general: false };
   }
 

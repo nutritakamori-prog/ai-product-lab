@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { getLatestMissionRun } from "@/services/evaluation-mission-runs";
 import { getRecommendation, listRecommendations, listRecommendationsForRun } from "@/services/recommendations";
-import { getImplementation } from "@/services/implementations";
+import { getImplementation, listImplementationsAwaitingCompletion } from "@/services/implementations";
 import { getAgentIntelligence } from "@/services/agent-intelligence";
 import { getFindingHistory } from "@/services/finding-history";
 import { getTeamIntelligence } from "@/services/team-intelligence";
@@ -162,6 +162,33 @@ export interface CreateValidationCandidatesResult {
   candidates: ValidationCandidate[];
 }
 
+/** FASE 18 — the real gap FASE 17 found: closes it, never a new persisted status beyond what ImplementationStatus already models. */
+export interface CompleteImplementationCandidate {
+  implementationId: string;
+  recommendationId: string;
+  title: string;
+  summary: string | null;
+  status: string;
+}
+export interface CompleteImplementationCandidatesResult {
+  type: "ACTION_CANDIDATES";
+  action: "COMPLETE_IMPLEMENTATION";
+  candidates: CompleteImplementationCandidate[];
+}
+
+/** FASE 18 — the other real gap FASE 17 found: a Validation created through the QG could never carry real retest evidence. RUN_RETEST's candidates are real Implementations that are COMPLETED but either have no Validation yet, or have one still PENDING with no retest reference (evidenceGaps.implementationsWithoutValidation / validationsWithoutRetestReference — both already existed). */
+export interface RetestCandidate {
+  implementationId: string;
+  recommendationId: string;
+  recommendationTitle: string;
+  implementationSummary: string | null;
+}
+export interface RunRetestCandidatesResult {
+  type: "ACTION_CANDIDATES";
+  action: "RUN_RETEST";
+  candidates: RetestCandidate[];
+}
+
 export type QgCommandResult =
   | LastCycleResult
   | RecurringFindingsResult
@@ -171,6 +198,8 @@ export type QgCommandResult =
   | ApproveRecommendationCandidatesResult
   | IgnoreRecommendationCandidatesResult
   | CreateImplementationCandidatesResult
+  | CompleteImplementationCandidatesResult
+  | RunRetestCandidatesResult
   | CreateValidationCandidatesResult
   | { type: "NO_ACTIVE_PROJECT" };
 
@@ -347,6 +376,51 @@ export async function getCreateValidationCandidates(projectId: string): Promise<
   return candidates.filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
 }
 
+/** FASE 18 — candidates for COMPLETE_IMPLEMENTATION: real Implementations still PENDING/IN_PROGRESS, scoped to the project the same way every other candidate list here already is. */
+export async function getCompleteImplementationCandidates(projectId: string): Promise<CompleteImplementationCandidate[]> {
+  const implementations = await listImplementationsAwaitingCompletion(projectId);
+  return implementations.map((implementation) => ({
+    implementationId: implementation.id,
+    recommendationId: implementation.recommendationId,
+    title: implementation.recommendation.title,
+    summary: implementation.summary,
+    status: implementation.status,
+  }));
+}
+
+/**
+ * FASE 18 — candidates for RUN_RETEST: a real, COMPLETED Implementation that
+ * still has no retest-backed evidence — either no Validation at all
+ * (evidenceGaps.implementationsWithoutValidation) or one still PENDING with
+ * no retest reference (evidenceGaps.validationsWithoutRetestReference) —
+ * both signals already existed (team-intelligence.ts). Deduplicated by
+ * implementationId since the same Implementation could, in principle,
+ * appear in both lists.
+ */
+export async function getRunRetestCandidates(projectId: string): Promise<RetestCandidate[]> {
+  const teamIntelligence = await getTeamIntelligence(projectId);
+  const implementationIds = new Set([
+    ...teamIntelligence.evidenceGaps.implementationsWithoutValidation.map((gap) => gap.implementationId),
+    ...teamIntelligence.evidenceGaps.validationsWithoutRetestReference.map((gap) => gap.implementationId),
+  ]);
+
+  const candidates = await Promise.all(
+    Array.from(implementationIds).map(async (implementationId) => {
+      const implementation = await getImplementation(implementationId);
+      if (!implementation || implementation.status !== "COMPLETED") return null;
+      const recommendation = await getRecommendation(implementation.recommendationId);
+      if (!recommendation) return null;
+      return {
+        implementationId: implementation.id,
+        recommendationId: recommendation.id,
+        recommendationTitle: recommendation.title,
+        implementationSummary: implementation.summary,
+      };
+    }),
+  );
+  return candidates.filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
+}
+
 /**
  * The one entry point the Server Action (src/app/qg/qg-command-actions.ts)
  * calls. GET_LAST_CYCLE never needs a resolved projectId (it already reads
@@ -380,5 +454,9 @@ export async function executeQgCommand(commandId: QgCommandId): Promise<QgComman
       return { type: "ACTION_CANDIDATES", action: "CREATE_IMPLEMENTATION", candidates: await getCreateImplementationCandidates(projectId) };
     case "CREATE_VALIDATION":
       return { type: "ACTION_CANDIDATES", action: "CREATE_VALIDATION", candidates: await getCreateValidationCandidates(projectId) };
+    case "COMPLETE_IMPLEMENTATION":
+      return { type: "ACTION_CANDIDATES", action: "COMPLETE_IMPLEMENTATION", candidates: await getCompleteImplementationCandidates(projectId) };
+    case "RUN_RETEST":
+      return { type: "ACTION_CANDIDATES", action: "RUN_RETEST", candidates: await getRunRetestCandidates(projectId) };
   }
 }

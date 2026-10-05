@@ -17,12 +17,14 @@ import { QG_COMMANDS, type QgActionId } from "@/core/qg-command-router/qg-comman
 import type {
   AgentActivityResult,
   ApproveRecommendationCandidatesResult,
+  CompleteImplementationCandidatesResult,
   CreateImplementationCandidatesResult,
   CreateValidationCandidatesResult,
   IgnoreRecommendationCandidatesResult,
   LastCycleResult,
   PendingRecommendationsResult,
   RecurringFindingsResult,
+  RunRetestCandidatesResult,
   TeamArchitectResult,
 } from "@/services/qg-command-router";
 
@@ -41,6 +43,8 @@ const ACTION_DESCRIPTION: Record<QgActionId, string> = {
   IGNORE_RECOMMENDATION: "Esta Recommendation será marcada como IGNORED.",
   CREATE_IMPLEMENTATION: "Uma nova Implementation será criada e vinculada a esta Recommendation, com status PENDING.",
   CREATE_VALIDATION: "Uma nova Validation será criada para esta Implementation, com status PENDING — sem reteste associado ainda.",
+  COMPLETE_IMPLEMENTATION: "Esta Implementation será marcada como COMPLETED.",
+  RUN_RETEST: "Uma nova Mission real de reteste será executada contra o mesmo alvo e os mesmos agentes do finding original, e o resultado vai gerar uma Validation real (PASSED, FAILED ou INCONCLUSIVE).",
 };
 
 type SelectCandidate = (action: QgActionId, targetId: string, title: string, impact: string | null, confidence: string | null) => void;
@@ -432,6 +436,10 @@ function CommandResultView({
         {result.type === "ACTION_CANDIDATES" && result.action === "CREATE_VALIDATION" ? (
           <CreateValidationCandidatesView result={result} onSelect={onSelectCandidate} />
         ) : null}
+        {result.type === "ACTION_CANDIDATES" && result.action === "COMPLETE_IMPLEMENTATION" ? (
+          <CompleteImplementationCandidatesView result={result} onSelect={onSelectCandidate} />
+        ) : null}
+        {result.type === "ACTION_CANDIDATES" && result.action === "RUN_RETEST" ? <RunRetestCandidatesView result={result} onSelect={onSelectCandidate} /> : null}
       </div>
     </div>
   );
@@ -633,6 +641,55 @@ function CreateValidationCandidatesView({ result, onSelect }: { result: CreateVa
             className="mt-2 rounded-md border border-accent px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
           >
             Criar Validation
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** FASE 18 — closes the real gap FASE 17 found: a conversational path to mark a real Implementation COMPLETED. Candidates come from listImplementationsAwaitingCompletion() (new, minimal). */
+function CompleteImplementationCandidatesView({ result, onSelect }: { result: CompleteImplementationCandidatesResult; onSelect: SelectCandidate }) {
+  if (result.candidates.length === 0) {
+    return <p className="text-muted">Nenhuma Implementation pendente de conclusão.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-2 text-xs">
+      {result.candidates.map((candidate) => (
+        <div key={candidate.implementationId} className="rounded-md border border-border p-3">
+          <p className="font-medium">{candidate.title}</p>
+          {candidate.summary ? <p className="mt-1 text-muted">{candidate.summary}</p> : null}
+          <p className="mt-1 text-muted">Status atual: {candidate.status}</p>
+          <button
+            type="button"
+            onClick={() => onSelect("COMPLETE_IMPLEMENTATION", candidate.implementationId, candidate.title, null, null)}
+            className="mt-2 rounded-md border border-accent px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
+          >
+            Marcar como concluída
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** FASE 18 — closes the other real gap FASE 17 found: a real retest, with real evidence, producing a real Validation. Candidates come from getRunRetestCandidates() (new, reuses existing evidenceGaps signals). */
+function RunRetestCandidatesView({ result, onSelect }: { result: RunRetestCandidatesResult; onSelect: SelectCandidate }) {
+  if (result.candidates.length === 0) {
+    return <p className="text-muted">Nenhuma Implementation concluída aguardando reteste.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-2 text-xs">
+      {result.candidates.map((candidate) => (
+        <div key={candidate.implementationId} className="rounded-md border border-border p-3">
+          <p className="font-medium">{candidate.recommendationTitle}</p>
+          {candidate.implementationSummary ? <p className="mt-1 text-muted">{candidate.implementationSummary}</p> : null}
+          <button
+            type="button"
+            onClick={() => onSelect("RUN_RETEST", candidate.implementationId, candidate.recommendationTitle, null, null)}
+            className="mt-2 rounded-md border border-accent px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
+          >
+            Validar alteração
           </button>
         </div>
       ))}

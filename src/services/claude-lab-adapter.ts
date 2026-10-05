@@ -1,5 +1,13 @@
 import { revalidatePath } from "next/cache";
-import { executeQgCommand, type QgCommandResult, type RecommendationCandidate, type ImplementationCandidate, type ValidationCandidate } from "@/services/qg-command-router";
+import {
+  executeQgCommand,
+  type QgCommandResult,
+  type RecommendationCandidate,
+  type ImplementationCandidate,
+  type ValidationCandidate,
+  type CompleteImplementationCandidate,
+  type RetestCandidate,
+} from "@/services/qg-command-router";
 import { executeQgAction } from "@/services/qg-action-executor";
 import { createActionConfirmation, consumeActionConfirmation } from "@/services/qg-action-confirmation";
 import { isQgActionId, type QgCommandId, type QgActionId } from "@/core/qg-command-router/qg-command-router";
@@ -101,7 +109,7 @@ export type ClaudeLabActionCandidatesResponse =
 /** Normalizes the three different candidate shapes (10B.3/10C's own types) into one — the exact same field mapping command-center.tsx's onSelect handlers already encode per action. */
 function toCandidateFields(
   action: QgActionId,
-  candidate: RecommendationCandidate | ImplementationCandidate | ValidationCandidate,
+  candidate: RecommendationCandidate | ImplementationCandidate | ValidationCandidate | CompleteImplementationCandidate | RetestCandidate,
 ): Omit<ClaudeActionCandidate, "token" | "expiresAt"> {
   if (action === "APPROVE_RECOMMENDATION" || action === "IGNORE_RECOMMENDATION") {
     const c = candidate as RecommendationCandidate;
@@ -110,6 +118,14 @@ function toCandidateFields(
   if (action === "CREATE_IMPLEMENTATION") {
     const c = candidate as ImplementationCandidate;
     return { targetId: c.recommendationId, title: c.title, summary: c.summary, impact: c.impact, confidence: c.confidence };
+  }
+  if (action === "COMPLETE_IMPLEMENTATION") {
+    const c = candidate as CompleteImplementationCandidate;
+    return { targetId: c.implementationId, title: c.title, summary: c.summary, impact: null, confidence: null };
+  }
+  if (action === "RUN_RETEST") {
+    const c = candidate as RetestCandidate;
+    return { targetId: c.implementationId, title: c.recommendationTitle, summary: c.implementationSummary, impact: null, confidence: null };
   }
   const c = candidate as ValidationCandidate;
   return { targetId: c.implementationId, title: c.recommendationTitle, summary: c.implementationSummary, impact: null, confidence: null };
