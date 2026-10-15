@@ -1,0 +1,30 @@
+{
+  "name": "@ai-product-lab/agent-library",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone, reusable library of evaluation-agent definitions (prompt/config, not a runtime) extracted from ai-product-lab.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
